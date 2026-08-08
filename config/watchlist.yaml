@@ -1,0 +1,43 @@
+# Company watchlist. Each entry is polled directly against the ATS public API.
+# The detector keyword-filters EVERY role on the board, so adding a board here
+# is full keyword coverage of that company at poll latency.
+#
+# Coverage scales with this file. There is no global "all Greenhouse" API —
+# board tokens must be enumerated. Grow this list; the marginal cost per
+# board is one HTTP request per cycle.
+#
+# greenhouse: token from boards.greenhouse.io/<token> or job-boards.greenhouse.io/<token>
+# lever:      slug from jobs.lever.co/<slug>
+# ashby:      board name from jobs.ashbyhq.com/<name>
+
+greenhouse:
+  - stripe
+  - databricks
+  - duolingo
+  - robinhood
+  - coinbase
+  - cloudflare
+  - figma
+  - pinterest
+  - mongodb
+  - datadog
+  - hudsonrivertrading
+  - janestreet
+
+lever:
+  - palantir
+  - plaid
+  - voleon
+
+ashby:
+  - ramp
+  - vercel
+  - linear
+  - notion
+  - openai
+
+# Backstop: community list repos. Wide coverage, minutes-to-hours latency.
+# Entries resolve to the employer's own page before publish — the aggregator
+# link is never what we store or show.
+github_lists:
+  - https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json

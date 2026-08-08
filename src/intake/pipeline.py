@@ -1,0 +1,134 @@
+"""Pipeline orchestrator.
+
+Flow per cycle:
+  1. Poll all detectors.
+  2. Upsert detections into the store (dedupe happens here).
+  3. New postings run the rule gate. Fail -> REJECTED. Pass -> GATED.
+  4. GATED postings go to the verifier agent. Verdict sets VERIFIED or REJECTED.
+  5. VERIFIED postings are handed to the publisher hook.
+
+No posting reaches the publisher without a stored verdict.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Callable
+
+import httpx
+
+from .config import Settings
+from .detectors import (
+    AshbyDetector,
+    Detector,
+    GithubListDetector,
+    GreenhouseDetector,
+    LeverDetector,
+)
+from .schema import Posting, Status
+from .store import Store
+from .verify import VerifierAgent, run_rules
+
+log = logging.getLogger("intake")
+
+
+@dataclass
+class CycleReport:
+    detected: int = 0
+    new: int = 0
+    rule_rejected: int = 0
+    agent_rejected: int = 0
+    verified: int = 0
+    published: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def default_publisher(p: Posting) -> None:
+    """Placeholder publish hook. Replace with the web-app API call."""
+    log.info("PUBLISH %s — %s (%s)", p.company, p.title, p.url)
+
+
+class Pipeline:
+    def __init__(
+        self,
+        settings: Settings,
+        store: Store | None = None,
+        detectors: list[Detector] | None = None,
+        verifier: VerifierAgent | None = None,
+        publisher: Callable[[Posting], None] = default_publisher,
+    ):
+        self.settings = settings
+        self.store = store or Store(settings.db_path)
+        wl = settings.watchlist
+        self.detectors: list[Detector] = detectors or [
+            GreenhouseDetector(wl.greenhouse),
+            LeverDetector(wl.lever),
+            AshbyDetector(wl.ashby),
+            GithubListDetector(wl.github_lists, max_age_days=settings.list_max_age_days),
+        ]
+        self.verifier = verifier or VerifierAgent(settings)
+        self.publisher = publisher
+        self.http = httpx.Client(follow_redirects=True)
+
+    def run_cycle(self, verify: bool = True) -> CycleReport:
+        """One full pass. verify=False stops after the rule gate — postings
+        park at GATED. Use it to inspect acquisition without spending on the
+        verifier (no API key required)."""
+        report = CycleReport()
+
+        # 1-2: detect and dedupe
+        for det in self.detectors:
+            try:
+                detections = det.poll()
+            except Exception as e:  # a detector crash must not kill the cycle
+                report.errors.append(f"{det.name}: {e}")
+                continue
+            report.detected += len(detections)
+            for d in detections:
+                _, is_new = self.store.upsert_detection(d)
+                report.new += int(is_new)
+
+        # 3: rule gate + canonical URL resolution
+        for p in self.store.by_status(Status.PENDING):
+            reason, canonical = run_rules(p, self.http)
+            if reason:
+                p.status, p.reject_reason = Status.REJECTED, reason
+                report.rule_rejected += 1
+            else:
+                p.canonical_url = canonical
+                p.status = Status.GATED
+            self.store.update(p)
+
+        if not verify:
+            return report
+
+        # 4: agent verification
+        for p in self.store.by_status(Status.GATED):
+            try:
+                verdict = self.verifier.verify(p)
+            except Exception as e:
+                report.errors.append(f"verify {p.id}: {e}")
+                continue  # stays GATED, retried next cycle
+            p.verdict = verdict
+            if verdict.approved:
+                p.status = Status.VERIFIED
+                report.verified += 1
+            else:
+                p.status = Status.REJECTED
+                p.reject_reason = "; ".join(verdict.reasons)[:500]
+                report.agent_rejected += 1
+            self.store.update(p)
+
+        # 5: publish
+        for p in self.store.by_status(Status.VERIFIED):
+            try:
+                self.publisher(p)
+            except Exception as e:
+                report.errors.append(f"publish {p.id}: {e}")
+                continue
+            p.status = Status.PUBLISHED
+            self.store.update(p)
+            report.published += 1
+
+        return report
