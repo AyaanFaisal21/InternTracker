@@ -12,6 +12,8 @@ Routes:
 from __future__ import annotations
 
 import json
+import socket
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -109,7 +111,23 @@ def make_handler(db_path: Path):
     return Handler
 
 
+class V6Server(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 def serve(db_path: Path, port: int = 8000):
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(db_path))
-    print(f"intake frontend: http://127.0.0.1:{port}")
-    server.serve_forever()
+    """Listen on both loopback families. Browsers resolve `localhost` to ::1
+    on many systems; an IPv4-only bind looks like the site is down."""
+    handler = make_handler(db_path)
+    servers = []
+    for cls, host in ((ThreadingHTTPServer, "127.0.0.1"), (V6Server, "::1")):
+        try:
+            servers.append(cls((host, port), handler))
+        except OSError:
+            continue  # family unavailable or already bound
+    if not servers:
+        raise SystemExit(f"port {port} unavailable on both loopback families")
+    for s in servers[1:]:
+        threading.Thread(target=s.serve_forever, daemon=True).start()
+    print(f"intake frontend: http://localhost:{port}")
+    servers[0].serve_forever()
