@@ -25,6 +25,8 @@ def fixture_client(routes: dict[str, object]) -> httpx.Client:
     def handler(request: httpx.Request) -> httpx.Response:
         for needle, payload in routes.items():
             if needle in str(request.url):
+                if isinstance(payload, str):
+                    return httpx.Response(200, text=payload)
                 return httpx.Response(200, json=payload)
         return httpx.Response(404, text="no fixture route")
 

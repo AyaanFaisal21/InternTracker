@@ -7,7 +7,7 @@ scripts/capture_fixtures.py and these tests show exactly what broke.
 from intake.detectors import AshbyDetector, GreenhouseDetector, LeverDetector
 from intake.schema import Source
 
-from .harness import fixture_client, load_fixture
+from .harness import FIXTURES as FIXTURES_PATH, fixture_client, load_fixture
 
 
 def test_greenhouse_parses_and_prefilters():
@@ -66,3 +66,28 @@ def test_workday_parses_and_builds_urls():
         "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite"
         "/job/US-CA-Santa-Clara/SWE-Intern_JR2022295"
     )
+
+
+def test_google_parses_ssr_links_and_dedupes():
+    from intake.detectors.custom_sites import GoogleCareersDetector
+
+    html = (FIXTURES_PATH / "google_results.html").read_text()
+    client = fixture_client({"careers/applications/jobs/results": html})
+    dets = GoogleCareersDetector(client=client).poll()
+    titles = sorted(d.title for d in dets)
+    # accountant filtered; duplicate id collapsed; student researcher counts as intern
+    assert titles == [
+        "Software Engineering Intern Summer 2027",
+        "Student Researcher Bsms Fall 2026",
+    ]
+    assert all(d.url.startswith("https://www.google.com/about/careers") for d in dets)
+
+
+def test_microsoft_parses_and_prefilters():
+    from intake.detectors.custom_sites import MicrosoftDetector
+
+    client = fixture_client({"gcsservices.careers.microsoft.com": load_fixture("microsoft_search.json")})
+    dets = MicrosoftDetector(client=client).poll()
+    assert len(dets) == 1
+    assert dets[0].company == "Microsoft"
+    assert dets[0].url == "https://jobs.careers.microsoft.com/global/en/job/1790000/"

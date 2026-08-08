@@ -1,0 +1,19 @@
+{
+  "operationResult": {
+    "result": {
+      "totalJobs": 2,
+      "jobs": [
+        {
+          "jobId": "1790000",
+          "title": "Software Engineering Intern",
+          "properties": {"locations": ["Redmond, Washington, United States"]}
+        },
+        {
+          "jobId": "1790001",
+          "title": "Finance Manager",
+          "properties": {"locations": ["Redmond, Washington, United States"]}
+        }
+      ]
+    }
+  }
+}

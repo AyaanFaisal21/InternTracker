@@ -48,7 +48,7 @@ def run_rules(
     reason, canonical, page_text = resolve_canonical(p.url, client)
     if reason:
         return reason, None, []
-    if p.source == Source.WORKDAY:
+    if Source.WORKDAY in p.sources:
         page_text = workday_detail_text(canonical or p.url, client) or page_text
     degrees = classify(p.title, strip_tags(page_text))
     return None, canonical, degrees

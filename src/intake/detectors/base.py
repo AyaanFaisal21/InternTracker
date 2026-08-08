@@ -14,7 +14,9 @@ from ..schema import RawDetection
 
 # Coarse pre-filter. Applied at the detector level only to cut noise from
 # full-board polls (an ATS board lists every role at the company).
-INTERN_RE = re.compile(r"\bintern(ship)?\b|\bco[- ]?op\b", re.IGNORECASE)
+INTERN_RE = re.compile(
+    r"\bintern(ship)?\b|\bco[- ]?op\b|student researcher", re.IGNORECASE
+)
 SWE_RE = re.compile(
     r"software|swe\b|engineer|developer|infra|backend|frontend|full[- ]?stack"
     r"|machine learning|\bml\b|\bai\b|data|platform|\bsystems?\b|security|mobile|ios|android"

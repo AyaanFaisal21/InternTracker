@@ -24,6 +24,7 @@ class Source(str, Enum):
     LEVER = "lever"
     ASHBY = "ashby"
     WORKDAY = "workday"
+    CUSTOM = "custom"
 
 
 class Status(str, Enum):

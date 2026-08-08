@@ -20,6 +20,7 @@ import httpx
 
 from .config import Settings
 from .detectors import (
+    CUSTOM_DETECTORS,
     AshbyDetector,
     Detector,
     GithubListDetector,
@@ -67,6 +68,7 @@ class Pipeline:
             LeverDetector(wl.lever),
             AshbyDetector(wl.ashby),
             WorkdayDetector(wl.workday),
+            *[CUSTOM_DETECTORS[name]() for name in wl.custom if name in CUSTOM_DETECTORS],
             GithubListDetector(wl.github_lists, max_age_days=settings.list_max_age_days),
         ]
         self.verifier = verifier or VerifierAgent(settings)
