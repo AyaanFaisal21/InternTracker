@@ -36,6 +36,13 @@ ashby:
   - notion
   - openai
 
+# Workday tenants: same JSON API on every company's own subdomain.
+workday:
+  - company: NVIDIA
+    host: nvidia.wd5.myworkdayjobs.com
+    tenant: nvidia
+    site: NVIDIAExternalCareerSite
+
 # Backstop: community list repos. Wide coverage, minutes-to-hours latency.
 # Entries resolve to the employer's own page before publish — the aggregator
 # link is never what we store or show.

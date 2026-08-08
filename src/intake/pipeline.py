@@ -25,6 +25,7 @@ from .detectors import (
     GithubListDetector,
     GreenhouseDetector,
     LeverDetector,
+    WorkdayDetector,
 )
 from .schema import Posting, Status
 from .store import Store
@@ -65,6 +66,7 @@ class Pipeline:
             GreenhouseDetector(wl.greenhouse),
             LeverDetector(wl.lever),
             AshbyDetector(wl.ashby),
+            WorkdayDetector(wl.workday),
             GithubListDetector(wl.github_lists, max_age_days=settings.list_max_age_days),
         ]
         self.verifier = verifier or VerifierAgent(settings)

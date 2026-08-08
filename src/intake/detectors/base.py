@@ -17,7 +17,10 @@ from ..schema import RawDetection
 INTERN_RE = re.compile(r"\bintern(ship)?\b|\bco[- ]?op\b", re.IGNORECASE)
 SWE_RE = re.compile(
     r"software|swe\b|engineer|developer|infra|backend|frontend|full[- ]?stack"
-    r"|machine learning|\bml\b|\bai\b|data|platform|systems|security|mobile|ios|android",
+    r"|machine learning|\bml\b|\bai\b|data|platform|\bsystems?\b|security|mobile|ios|android"
+    # research-heavy employers (NVIDIA et al.) title CS intern roles like this:
+    r"|deep learning|\bllm\b|gpu|cuda|compiler|graphics|robotics|computer vision"
+    r"|perception|autonomous|firmware|research",
     re.IGNORECASE,
 )
 

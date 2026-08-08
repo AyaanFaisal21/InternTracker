@@ -43,3 +43,26 @@ def test_bad_board_does_not_stop_sweep():
     client = fixture_client({"boards/good/": load_fixture("greenhouse_jobs.json")})
     dets = GreenhouseDetector(["broken", "good"], client=client).poll()
     assert len(dets) == 1
+
+
+def test_workday_parses_and_builds_urls():
+    from intake.config import WorkdayBoard
+
+    from intake.detectors import WorkdayDetector
+
+    client = fixture_client({"/wday/cxs/nvidia/": load_fixture("workday_jobs.json")})
+    board = WorkdayBoard(
+        company="NVIDIA", host="nvidia.wd5.myworkdayjobs.com",
+        tenant="nvidia", site="NVIDIAExternalCareerSite",
+    )
+    dets = WorkdayDetector([board], client=client).poll()
+    # manager role filtered out ("Solution Architect Manager" carries no SWE term)
+    assert len(dets) == 1
+    d = dets[0]
+    assert d.source == Source.WORKDAY
+    assert d.company == "NVIDIA"
+    assert d.payload["req_id"] == "JR2022295"
+    assert d.url == (
+        "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite"
+        "/job/US-CA-Santa-Clara/SWE-Intern_JR2022295"
+    )

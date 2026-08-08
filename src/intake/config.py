@@ -11,10 +11,18 @@ DEFAULT_WATCHLIST = Path(__file__).resolve().parents[2] / "config" / "watchlist.
 DEFAULT_DB = Path(__file__).resolve().parents[2] / "intake.db"
 
 
+class WorkdayBoard(BaseModel):
+    company: str  # display name, e.g. "NVIDIA"
+    host: str     # e.g. "nvidia.wd5.myworkdayjobs.com"
+    tenant: str   # e.g. "nvidia"
+    site: str     # e.g. "NVIDIAExternalCareerSite"
+
+
 class Watchlist(BaseModel):
     greenhouse: list[str] = Field(default_factory=list)  # board tokens
     lever: list[str] = Field(default_factory=list)       # company slugs
     ashby: list[str] = Field(default_factory=list)       # job board names
+    workday: list[WorkdayBoard] = Field(default_factory=list)
     github_lists: list[str] = Field(default_factory=list)  # raw listings.json URLs
 
 
