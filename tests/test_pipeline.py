@@ -50,7 +50,7 @@ DET = RawDetection(
 )
 
 
-@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1"))
+@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1", ["BS"]))
 def test_approved_posting_is_published(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET], approved=True)
     report = pipeline.run_cycle()
@@ -59,7 +59,7 @@ def test_approved_posting_is_published(_rules, tmp_path):
     assert pipeline.store.get(DET.dedupe_key()).status == Status.PUBLISHED
 
 
-@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1"))
+@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1", ["BS"]))
 def test_rejected_posting_never_publishes(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET], approved=False)
     report = pipeline.run_cycle()
@@ -69,7 +69,7 @@ def test_rejected_posting_never_publishes(_rules, tmp_path):
     assert p.status == Status.REJECTED and p.verdict is not None
 
 
-@patch("intake.pipeline.run_rules", return_value=("url returned 404", None))
+@patch("intake.pipeline.run_rules", return_value=("url returned 404", None, []))
 def test_rule_rejection_skips_agent(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET])
     report = pipeline.run_cycle()
@@ -77,7 +77,7 @@ def test_rule_rejection_skips_agent(_rules, tmp_path):
     assert pipeline.store.get(DET.dedupe_key()).reject_reason == "url returned 404"
 
 
-@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1"))
+@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1", ["BS"]))
 def test_no_verify_parks_at_gated(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET])
     report = pipeline.run_cycle(verify=False)
@@ -85,3 +85,4 @@ def test_no_verify_parks_at_gated(_rules, tmp_path):
     p = pipeline.store.get(DET.dedupe_key())
     assert p.status == Status.GATED
     assert p.canonical_url == "https://stripe.com/jobs/1"
+    assert p.degree_levels == ["BS"]

@@ -48,10 +48,14 @@ PAGE = """<!doctype html>
 const STATUSES = ["all","pending","gated","verified","published","rejected"];
 const DEGREES = ["any","BS","MS","PhD"];
 let filter = "all", degree = "any", data = [];
+function degreesOf(p) {
+  const v = p.verdict && (p.verdict.degree_levels || []).length
+    ? p.verdict.degree_levels : (p.degree_levels || []);
+  return v;  // [] -> no requirement found -> open to all
+}
 function degreeOk(p) {
   if (degree === "any") return true;
-  if (!p.verdict) return false;              // unverified: unknown degree reqs
-  const d = p.verdict.degree_levels || [];
+  const d = degreesOf(p);
   return d.length === 0 || d.includes(degree);
 }
 function render() {
@@ -63,7 +67,7 @@ function render() {
       <td><a href="${p.canonical_url || p.url}" target="_blank">${p.title}</a></td>
       <td><span class="pill ${p.status}">${p.status}</span></td>
       <td>${p.sources.join(", ")}</td>
-      <td>${p.verdict ? (p.verdict.degree_levels || []).join("/") || "any" : "?"}</td>
+      <td>${degreesOf(p).join("/") || "any"}</td>
       <td>${p.locations.slice(0,3).join("; ")}</td>
       <td>${(p.first_seen || "").slice(0, 16).replace("T", " ")}</td>
       <td class="reasons">${p.reject_reason || (p.verdict ? p.verdict.reasons.join("; ") : "")}</td>

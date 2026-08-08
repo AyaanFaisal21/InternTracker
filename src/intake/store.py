@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS postings (
     title         TEXT NOT NULL,
     url           TEXT NOT NULL,
     canonical_url TEXT,
+    degree_levels TEXT NOT NULL DEFAULT '[]',  -- JSON array
     locations     TEXT NOT NULL,   -- JSON array
     sources       TEXT NOT NULL,   -- JSON array
     first_seen    TEXT NOT NULL,
@@ -40,7 +41,11 @@ class Store:
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(postings)")}
         if "canonical_url" not in cols:
             self.conn.execute("ALTER TABLE postings ADD COLUMN canonical_url TEXT")
-            self.conn.commit()
+        if "degree_levels" not in cols:
+            self.conn.execute(
+                "ALTER TABLE postings ADD COLUMN degree_levels TEXT NOT NULL DEFAULT '[]'"
+            )
+        self.conn.commit()
 
     def get(self, posting_id: str) -> Posting | None:
         row = self.conn.execute(
@@ -89,11 +94,12 @@ class Store:
     def _write(self, p: Posting) -> None:
         self.conn.execute(
             """INSERT INTO postings
-               (id, company, title, url, canonical_url, locations, sources,
-                first_seen, status, reject_reason, verdict)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)
+               (id, company, title, url, canonical_url, degree_levels,
+                locations, sources, first_seen, status, reject_reason, verdict)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
                  canonical_url=excluded.canonical_url,
+                 degree_levels=excluded.degree_levels,
                  locations=excluded.locations, sources=excluded.sources,
                  status=excluded.status, reject_reason=excluded.reject_reason,
                  verdict=excluded.verdict""",
@@ -103,6 +109,7 @@ class Store:
                 p.title,
                 p.url,
                 p.canonical_url,
+                json.dumps(p.degree_levels),
                 json.dumps(p.locations),
                 json.dumps([s.value for s in p.sources]),
                 p.first_seen.isoformat(),
@@ -123,6 +130,7 @@ class Store:
             title=row["title"],
             url=row["url"],
             canonical_url=row["canonical_url"],
+            degree_levels=json.loads(row["degree_levels"]),
             locations=json.loads(row["locations"]),
             sources=[Source(s) for s in json.loads(row["sources"])],
             first_seen=row["first_seen"],

@@ -83,6 +83,8 @@ class Posting(BaseModel):
     title: str
     url: str                          # as detected
     canonical_url: str | None = None  # resolved employer page; publish this, never url
+    degree_levels: list[DegreeLevel] = Field(default_factory=list)
+    # Heuristic (rule gate). verdict.degree_levels, when present, overrides.
     locations: list[str] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
     first_seen: datetime

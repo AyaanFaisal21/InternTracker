@@ -26,17 +26,20 @@ def strip_tracking(url: str) -> str:
     return urlunsplit(parts._replace(query=urlencode(kept), fragment=""))
 
 
-def resolve_canonical(url: str, client: httpx.Client) -> tuple[str | None, str | None]:
+def resolve_canonical(
+    url: str, client: httpx.Client
+) -> tuple[str | None, str | None, str]:
     """Follow redirects to the final employer page.
 
-    Returns (reject_reason, canonical_url). Exactly one is None.
+    Returns (reject_reason, canonical_url, page_text). Reason and canonical
+    are mutually exclusive; page_text is the response body ("" on reject).
     """
     if not url.startswith("http"):
-        return "malformed url", None
+        return "malformed url", None, ""
     try:
         resp = client.get(url, follow_redirects=True, timeout=15.0)
     except httpx.HTTPError as e:
-        return f"url unreachable: {type(e).__name__}", None
+        return f"url unreachable: {type(e).__name__}", None, ""
     if resp.status_code >= 400:
-        return f"url returned {resp.status_code}", None
-    return None, strip_tracking(str(resp.url))
+        return f"url returned {resp.status_code}", None, ""
+    return None, strip_tracking(str(resp.url)), resp.text

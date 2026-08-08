@@ -13,8 +13,9 @@ import re
 
 import httpx
 
+from ..degrees import classify, strip_tags, workday_detail_text
 from ..normalize import resolve_canonical
-from ..schema import Posting
+from ..schema import DegreeLevel, Posting, Source
 
 DISQUALIFYING_RE = re.compile(
     r"unpaid|ambassador|brand rep|commission[- ]only|volunteer", re.IGNORECASE
@@ -33,13 +34,21 @@ def check_title(p: Posting) -> str | None:
     return None
 
 
-def run_rules(p: Posting, client: httpx.Client) -> tuple[str | None, str | None]:
-    """Run all rules and resolve the canonical URL.
+def run_rules(
+    p: Posting, client: httpx.Client
+) -> tuple[str | None, str | None, list[DegreeLevel]]:
+    """Run rules, resolve the canonical URL, classify degree levels.
 
-    Returns (reject_reason, canonical_url). On rejection the canonical URL
-    is None. On pass the canonical URL is the resolved employer page.
+    Returns (reject_reason, canonical_url, degree_levels). On rejection the
+    last two are empty.
     """
     reason = check_title(p)
     if reason:
-        return reason, None
-    return resolve_canonical(p.url, client)
+        return reason, None, []
+    reason, canonical, page_text = resolve_canonical(p.url, client)
+    if reason:
+        return reason, None, []
+    if p.source == Source.WORKDAY:
+        page_text = workday_detail_text(canonical or p.url, client) or page_text
+    degrees = classify(p.title, strip_tags(page_text))
+    return None, canonical, degrees

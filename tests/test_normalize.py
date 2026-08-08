@@ -23,13 +23,14 @@ def test_resolve_follows_redirect_to_employer_page():
             return httpx.Response(302, headers={"location": "https://acme.com/careers/1?utm_source=Simplify"})
         return httpx.Response(200, text="ok")
 
-    reason, canonical = resolve_canonical("https://simplify.jobs/p/abc", _client(handler))
+    reason, canonical, text = resolve_canonical("https://simplify.jobs/p/abc", _client(handler))
     assert reason is None
     assert canonical == "https://acme.com/careers/1"
+    assert text == "ok"
 
 
 def test_resolve_rejects_dead_link():
-    reason, canonical = resolve_canonical(
+    reason, canonical, text = resolve_canonical(
         "https://acme.com/gone", _client(lambda r: httpx.Response(404))
     )
-    assert reason == "url returned 404" and canonical is None
+    assert reason == "url returned 404" and canonical is None and text == ""
