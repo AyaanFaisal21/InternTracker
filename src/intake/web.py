@@ -17,6 +17,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .locations import countries_of
 from .store import Store
 
 PAGE = """<!doctype html>
@@ -35,10 +36,14 @@ PAGE = """<!doctype html>
   .pending, .gated { background:#3b331d; color:#dccf8f; }
   .filters button { background:#222; color:#ddd; border:1px solid #333; padding:4px 10px; margin-right:6px; cursor:pointer; border-radius:4px; }
   .filters button.on { background:#345; }
+  .filters select { background:#222; color:#ddd; border:1px solid #333; padding:4px 8px; border-radius:4px; }
   .reasons { color:#888; font-size: 12px; max-width: 34ch; }
 </style>
 <h1>RUemployed intake <span class="muted" id="count"></span></h1>
 <div class="filters" id="filters"></div>
+<div class="filters" style="margin-top:6px">
+  country: <select id="country" onchange="country=this.value;render()"><option value="all">all</option></select>
+</div>
 <table>
   <thead><tr><th>company</th><th>title</th><th>status</th><th>sources</th>
   <th>degrees</th><th>locations</th><th>first seen</th><th>notes</th></tr></thead>
@@ -47,7 +52,7 @@ PAGE = """<!doctype html>
 <script>
 const STATUSES = ["all","pending","gated","verified","published","rejected"];
 const DEGREES = ["any","BS","MS","PhD"];
-let filter = "all", degree = "any", data = [];
+let filter = "all", degree = "any", country = "all", data = [];
 function degreesOf(p) {
   const v = p.verdict && (p.verdict.degree_levels || []).length
     ? p.verdict.degree_levels : (p.degree_levels || []);
@@ -59,7 +64,9 @@ function degreeOk(p) {
   return d.length === 0 || d.includes(degree);
 }
 function render() {
-  const rows = data.filter(p => (filter === "all" || p.status === filter) && degreeOk(p));
+  const rows = data.filter(p =>
+    (filter === "all" || p.status === filter) && degreeOk(p)
+    && (country === "all" || (p.countries || []).includes(country)));
   document.getElementById("count").textContent = `— ${rows.length} shown / ${data.length} total`;
   document.getElementById("rows").innerHTML = rows.map(p => `
     <tr>
@@ -79,8 +86,18 @@ function render() {
     + DEGREES.map(d =>
       `<button class="${d === degree ? "on" : ""}" onclick="degree='${d}';render()">${d}</button>`).join("");
 }
+function refreshCountryOptions() {
+  const sel = document.getElementById("country");
+  const seen = [...new Set(data.flatMap(p => p.countries || []))].sort();
+  const keep = sel.value;
+  sel.innerHTML = `<option value="all">all</option>` +
+    seen.map(c => `<option value="${c}">${c}</option>`).join("");
+  sel.value = seen.includes(keep) || keep === "all" ? keep : "all";
+  country = sel.value;
+}
 async function load() {
   data = await (await fetch("/api/postings")).json();
+  refreshCountryOptions();
   render();
 }
 load(); setInterval(load, 30000);
@@ -95,9 +112,12 @@ def make_handler(db_path: Path):
                 self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             elif self.path.startswith("/api/postings"):
                 store = Store(db_path)  # per-request connection: thread-safe
-                body = json.dumps(
-                    [p.model_dump(mode="json") for p in store.all_postings()]
-                ).encode()
+                rows = []
+                for p in store.all_postings():
+                    d = p.model_dump(mode="json")
+                    d["countries"] = countries_of(p.locations)
+                    rows.append(d)
+                body = json.dumps(rows).encode()
                 self._send(200, body, "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
