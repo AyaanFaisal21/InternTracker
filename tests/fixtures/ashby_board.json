@@ -1,0 +1,17 @@
+{
+  "jobs": [
+    {
+      "title": "Machine Learning Intern",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/ccc-333",
+      "applyUrl": "https://jobs.ashbyhq.com/acme/ccc-333/application",
+      "location": "San Francisco",
+      "isListed": true
+    },
+    {
+      "title": "Head of People",
+      "jobUrl": "https://jobs.ashbyhq.com/acme/ddd-444",
+      "location": "Remote",
+      "isListed": true
+    }
+  ]
+}

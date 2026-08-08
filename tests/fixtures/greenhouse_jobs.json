@@ -1,0 +1,22 @@
+{
+  "jobs": [
+    {
+      "id": 100001,
+      "title": "Software Engineer, Intern",
+      "absolute_url": "https://stripe.com/jobs/listing/software-engineer-intern/100001?gh_src=abc123",
+      "location": {"name": "New York, NY"}
+    },
+    {
+      "id": 100002,
+      "title": "Senior Software Engineer",
+      "absolute_url": "https://stripe.com/jobs/listing/senior/100002",
+      "location": {"name": "Remote"}
+    },
+    {
+      "id": 100003,
+      "title": "Culinary Intern",
+      "absolute_url": "https://stripe.com/jobs/listing/culinary/100003",
+      "location": {"name": "Dublin"}
+    }
+  ]
+}

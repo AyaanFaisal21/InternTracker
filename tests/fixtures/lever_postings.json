@@ -1,0 +1,14 @@
+[
+  {
+    "id": "aaa-111",
+    "text": "Software Engineer Intern (Summer 2026)",
+    "hostedUrl": "https://jobs.lever.co/acme/aaa-111?lever-source=Simplify",
+    "categories": {"location": "Palo Alto, CA", "team": "Engineering"}
+  },
+  {
+    "id": "bbb-222",
+    "text": "Account Executive",
+    "hostedUrl": "https://jobs.lever.co/acme/bbb-222",
+    "categories": {"location": "NYC"}
+  }
+]
