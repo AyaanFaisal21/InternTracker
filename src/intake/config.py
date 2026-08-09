@@ -23,7 +23,8 @@ class Watchlist(BaseModel):
     lever: list[str] = Field(default_factory=list)       # company slugs
     ashby: list[str] = Field(default_factory=list)       # job board names
     workday: list[WorkdayBoard] = Field(default_factory=list)
-    custom: list[str] = Field(default_factory=list)  # keys of CUSTOM_DETECTORS
+    custom: list[str] = Field(default_factory=list)   # keys of CUSTOM_DETECTORS
+    browser: list[str] = Field(default_factory=list)  # keys of BROWSER_DETECTORS
     github_lists: list[str] = Field(default_factory=list)  # raw listings.json URLs
 
 

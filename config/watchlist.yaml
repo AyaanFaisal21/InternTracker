@@ -53,3 +53,7 @@ github_lists:
 custom:
   - google
   - microsoft
+
+# Browser-render tier (needs: pip install -e '.[browser]' && playwright install chromium)
+browser:
+  - apple
