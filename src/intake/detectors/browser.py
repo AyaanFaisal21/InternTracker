@@ -1,57 +1,58 @@
 """Browser-render detector tier.
 
-For career sites whose data is token-gated or client-rendered (apple,
-tiktok, meta). A headless Chromium loads the human-facing page; the
-rendered DOM is parsed with fixed patterns per site. No LLM.
+For career sites whose data is token-gated or client-rendered. A headless
+Chromium mimics a person: load the page, type the query, submit, then
+capture the JSON the site's own frontend receives. The site handles its
+own tokens; we never reverse them.
 
 Playwright is an optional dependency:
   pip install -e '.[browser]' && playwright install chromium
 
 Parsing is split from fetching so parsers stay fixture-testable without
 a browser.
+
+apple: URL params are ignored by the SPA; only UI-driven search filters.
+The search box POST to /api/v1/search is captured. Titles are umbrella
+postings per degree level ("Software Undergrad Engineering Internships").
+TODO: tiktok/bytedance, meta.
 """
 
 from __future__ import annotations
 
-import re
-
 from ..schema import RawDetection, Source
 from .base import looks_like_swe_internship
 
-APPLE_SEARCH_URL = "https://jobs.apple.com/en-us/search?team=internships-STDNT&sort=newest"
-# Rendered DOM: result links carry /en-us/details/<positionId>/<slug>
-APPLE_LINK_RE = re.compile(
-    r'href="(?:https://jobs\.apple\.com)?(/en-us/details/(\d+)/([^"?#]+))[^"]*"[^>]*>(.*?)</a>',
-    re.DOTALL,
-)
-TAG_RE = re.compile(r"<[^>]+>")
+APPLE_SEARCH_PAGE = "https://jobs.apple.com/en-us/search"
+APPLE_QUERY = "software engineering internship"
+APPLE_SEARCH_BOX = 'input[placeholder="Search by role or keyword"]'
 
 
-def parse_apple_search(html: str) -> list[RawDetection]:
+def parse_apple_results(res: dict) -> list[RawDetection]:
     out: list[RawDetection] = []
-    seen: set[str] = set()
-    for _path, pos_id, slug, inner in APPLE_LINK_RE.findall(html):
-        title = TAG_RE.sub("", inner).strip()
-        if not title:
-            title = slug.replace("-", " ").title()
-        if pos_id in seen or not looks_like_swe_internship(title):
+    for j in res.get("searchResults", []):
+        title = j.get("postingTitle", "")
+        pos_id = j.get("positionId", "")
+        slug = j.get("transformedPostingTitle", "")
+        if not (title and pos_id and slug):
             continue
-        seen.add(pos_id)
+        if not looks_like_swe_internship(title):
+            continue
+        locs = j.get("locations") or []
         out.append(
             RawDetection(
                 source=Source.CUSTOM,
                 company="Apple",
                 title=title,
                 url=f"https://jobs.apple.com/en-us/details/{pos_id}/{slug}",
-                payload={"position_id": pos_id},
+                locations=[loc.get("name", "") for loc in locs if isinstance(loc, dict)],
+                payload={"position_id": pos_id, "req_id": j.get("reqId")},
             )
         )
     return out
 
 
-def fetch_rendered(url: str, wait_selector: str, timeout_ms: int = 30_000) -> str:
-    """Load url in headless Chromium, wait for the selector, return HTML.
-    Raises RuntimeError with install guidance when playwright is absent."""
+def capture_apple_search(timeout_ms: int = 45_000) -> dict:
+    """Drive the search UI, return the /api/v1/search response body."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:
@@ -63,9 +64,15 @@ def fetch_rendered(url: str, wait_selector: str, timeout_ms: int = 30_000) -> st
         browser = pw.chromium.launch(headless=True)
         try:
             page = browser.new_page()
-            page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-            page.wait_for_selector(wait_selector, timeout=timeout_ms)
-            return page.content()
+            page.goto(APPLE_SEARCH_PAGE, wait_until="networkidle", timeout=timeout_ms)
+            with page.expect_response(
+                lambda r: "/api/v1/search" in r.url and r.request.method == "POST",
+                timeout=timeout_ms,
+            ) as info:
+                page.fill(APPLE_SEARCH_BOX, APPLE_QUERY)
+                page.keyboard.press("Enter")
+            data = info.value.json()
+            return data.get("res", data)
         finally:
             browser.close()
 
@@ -74,8 +81,7 @@ class AppleBrowserDetector:
     name = "apple_browser"
 
     def poll(self) -> list[RawDetection]:
-        html = fetch_rendered(APPLE_SEARCH_URL, 'a[href*="/details/"]')
-        return parse_apple_search(html)
+        return parse_apple_results(capture_apple_search())
 
 
 BROWSER_DETECTORS = {
