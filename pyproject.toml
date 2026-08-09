@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+browser = ["playwright"]
 
 [project.scripts]
 intake = "intake.cli:main"
