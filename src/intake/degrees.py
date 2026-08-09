@@ -14,7 +14,7 @@ import httpx
 from .schema import DegreeLevel
 
 PATTERNS: dict[DegreeLevel, re.Pattern] = {
-    "BS": re.compile(r"bachelor|\bb\.?s\.?\b|\bbsc\b|undergraduate", re.IGNORECASE),
+    "BS": re.compile(r"bachelor|\bb\.?s\.?\b|\bbsc\b|undergrad(?:uate)?", re.IGNORECASE),
     "MS": re.compile(r"master|\bm\.?s\.?\b|\bmsc\b|\bmeng\b", re.IGNORECASE),
     "PhD": re.compile(r"ph\.?\s?d|doctoral|doctorate", re.IGNORECASE),
 }
