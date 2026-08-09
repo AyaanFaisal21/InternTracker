@@ -4,3 +4,4 @@ __pycache__/
 intake.db
 .env
 .pytest_cache/
+NOTES.md
