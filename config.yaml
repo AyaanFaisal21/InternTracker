@@ -1,0 +1,30 @@
+# Companies to watch. Adding one is a config edit; the adapters already exist.
+#
+# title_include / title_exclude are regexes applied to the posting title.
+# The exclude below drops PhD-labelled roles because NVIDIA marks them in the
+# title, which is the practical proxy for "undergraduate" — postings that
+# don't state a level still come through, on purpose.
+
+companies:
+  - name: NVIDIA
+    type: workday
+    host: nvidia.wd5.myworkdayjobs.com
+    tenant: nvidia
+    site: NVIDIAExternalCareerSite
+    search: intern
+    title_include: '(?i)\bintern(ship)?\b|co-?op'
+    title_exclude: '(?i)\bphd\b'
+
+  # --- examples for later; flip enabled: true and fill in the board id ------
+  # - name: SomeCompany
+  #   type: greenhouse          # boards.greenhouse.io/<board>
+  #   board: somecompany
+  #   enabled: false
+  # - name: OtherCompany
+  #   type: lever               # jobs.lever.co/<org>
+  #   org: othercompany
+  #   enabled: false
+  # - name: ThirdCompany
+  #   type: ashby               # jobs.ashbyhq.com/<org>
+  #   org: thirdcompany
+  #   enabled: false
