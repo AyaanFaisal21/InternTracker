@@ -91,3 +91,18 @@ def test_microsoft_parses_and_prefilters():
     assert len(dets) == 1
     assert dets[0].company == "Microsoft"
     assert dets[0].url == "https://jobs.careers.microsoft.com/global/en/job/1790000/"
+
+
+def test_apple_parser_filters_and_builds_urls():
+    from intake.detectors.browser import parse_apple_results
+
+    dets = parse_apple_results(load_fixture("apple_search.json"))
+    # legal internship dropped by SWE filter
+    assert len(dets) == 1
+    d = dets[0]
+    assert d.company == "Apple"
+    assert d.url == (
+        "https://jobs.apple.com/en-us/details/200664320"
+        "/software-engineering-masters-internships"
+    )
+    assert d.locations == ["Cupertino"]

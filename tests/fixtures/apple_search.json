@@ -1,0 +1,19 @@
+{
+  "searchResults": [
+    {
+      "postingTitle": "Software Engineering Masters Internships",
+      "positionId": "200664320",
+      "transformedPostingTitle": "software-engineering-masters-internships",
+      "reqId": "PIPE-200664320",
+      "locations": [{"name": "Cupertino"}]
+    },
+    {
+      "postingTitle": "Legal Internships",
+      "positionId": "200664232",
+      "transformedPostingTitle": "legal-internships",
+      "reqId": "PIPE-200664232",
+      "locations": [{"name": "Cupertino"}]
+    }
+  ],
+  "totalRecords": 2
+}
