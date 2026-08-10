@@ -52,6 +52,7 @@ workday:
 # link is never what we store or show.
 github_lists:
   - https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json
+  - https://raw.githubusercontent.com/vanshb03/Summer2027-Internships/dev/.github/scripts/listings.json
 
 # Custom-site adapters (see detectors/custom_sites.py)
 custom:
