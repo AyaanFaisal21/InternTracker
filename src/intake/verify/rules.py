@@ -14,7 +14,7 @@ import re
 import httpx
 
 from ..degrees import classify, strip_tags, workday_detail_text
-from ..normalize import resolve_canonical
+from ..normalize import resolve_canonical, strip_tracking
 from ..schema import DegreeLevel, Posting, Source
 
 DISQUALIFYING_RE = re.compile(
@@ -55,6 +55,10 @@ def run_rules(
     if reason:
         return reason, None, []
     reason, canonical, page_text = resolve_canonical(p.url, client)
+    if reason and ("403" in reason or "429" in reason):
+        # WAF block, not a dead posting (Tesla et al. reject bot clients).
+        # Keep the source URL; the verifier or a browser pass judges later.
+        canonical, page_text, reason = strip_tracking(p.url), "", None
     if reason:
         return reason, None, []
     if Source.WORKDAY in p.sources:
