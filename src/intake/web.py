@@ -37,22 +37,31 @@ PAGE = """<!doctype html>
   .filters button { background:#222; color:#ddd; border:1px solid #333; padding:4px 10px; margin-right:6px; cursor:pointer; border-radius:4px; }
   .filters button.on { background:#345; }
   .filters select { background:#222; color:#ddd; border:1px solid #333; padding:4px 8px; border-radius:4px; }
-  .reasons { color:#888; font-size: 12px; max-width: 34ch; }
+  .reasons { color:#888; font-size: 12px; }
+  .issue { border:1px solid #2a2a2a; border-radius:6px; margin-top:8px; padding:10px 14px; }
+  .issue summary { cursor:pointer; list-style:none; display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; }
+  .issue summary::-webkit-details-marker { display:none; }
+  .ititle { font-weight:600; font-size:15px; }
+  .tag { padding:1px 9px; border-radius:10px; font-size:11.5px; border:1px solid #333; background:#1c1c1c; color:#bbb; }
+  .tag.deg { border-color:#2c4a6e; color:#9cc4ee; }
+  .tag.season { border-color:#5a4a1e; color:#e2c76e; }
+  .tag.src { border-color:#3a3a3a; }
+  .tag.country { border-color:#2e4a2e; color:#9ed69e; }
+  .posted { color:#888; font-size:12px; margin-left:auto; }
+  .body { margin-top:10px; color:#aaa; font-size:13px; border-top:1px solid #222; padding-top:8px; white-space:pre-wrap; }
 </style>
 <h1>RUemployed intake <span class="muted" id="count"></span></h1>
 <div class="filters" id="filters"></div>
 <div class="filters" style="margin-top:6px">
   country: <select id="country" onchange="country=this.value;render()"><option value="all">all</option></select>
+  season: <select id="season" onchange="season=this.value;render()"><option value="all">all</option></select>
 </div>
-<table>
-  <thead><tr><th>company</th><th>title</th><th>status</th><th>sources</th>
-  <th>degrees</th><th>locations</th><th>posted</th><th>notes</th></tr></thead>
-  <tbody id="rows"></tbody>
-</table>
+<div id="rows"></div>
 <script>
 const STATUSES = ["all","pending","gated","verified","published","rejected"];
 const DEGREES = ["any","BS","MS","PhD"];
-let filter = "all", degree = "any", country = "all", data = [];
+const FRESH = [["all",Infinity],["2h",2],["8h",8],["24h",24],["2d",48],["3d",72],["1w",168]];
+let filter = "all", degree = "BS", country = "United States", fresh = "all", season = "all", data = [];
 function degreesOf(p) {
   const v = p.verdict && (p.verdict.degree_levels || []).length
     ? p.verdict.degree_levels : (p.degree_levels || []);
@@ -63,28 +72,68 @@ function degreeOk(p) {
   const d = degreesOf(p);
   return d.length === 0 || d.includes(degree);
 }
+function freshOk(p) {
+  if (fresh === "all") return true;
+  if (!p.date_posted) return false;
+  const hrs = (Date.now() - new Date(p.date_posted).getTime()) / 3.6e6;
+  return hrs <= FRESH.find(f => f[0] === fresh)[1];
+}
+function seasonOf(p) {
+  return (p.verdict && p.verdict.season) || p.season || null;
+}
+function postedLabel(p) {
+  if (p.date_posted) {
+    const hrs = (Date.now() - new Date(p.date_posted).getTime()) / 3.6e6;
+    if (hrs < 1) return "just now";
+    if (hrs < 24) return `${Math.floor(hrs)}h ago`;
+    if (hrs < 24 * 14) return `${Math.floor(hrs / 24)}d ago`;
+    return p.date_posted.slice(0, 10);
+  }
+  return p.date_posted_text || "date unknown";
+}
 function render() {
   const rows = data.filter(p =>
-    (filter === "all" || p.status === filter) && degreeOk(p)
+    (filter === "all" || p.status === filter) && degreeOk(p) && freshOk(p)
+    && (season === "all" || seasonOf(p) === season)
     && (country === "all" || (p.countries || []).includes(country)));
   document.getElementById("count").textContent = `— ${rows.length} shown / ${data.length} total`;
   document.getElementById("rows").innerHTML = rows.map(p => `
-    <tr>
-      <td>${p.company}</td>
-      <td><a href="${p.canonical_url || p.url}" target="_blank">${p.title}</a></td>
-      <td><span class="pill ${p.status}">${p.status}</span></td>
-      <td>${p.sources.join(", ")}</td>
-      <td>${degreesOf(p).join("/") || "any"}</td>
-      <td>${p.locations.slice(0,3).join("; ")}</td>
-      <td>${p.date_posted ? p.date_posted.slice(0, 10) : "?"}</td>
-      <td class="reasons">${p.reject_reason || (p.verdict ? p.verdict.reasons.join("; ") : "")}</td>
-    </tr>`).join("");
+    <details class="issue">
+      <summary>
+        <span class="ititle"><a href="${p.canonical_url || p.url}" target="_blank">${p.title}</a></span>
+        <span class="tag src">${p.company}</span>
+        <span class="pill ${p.status}">${p.status}</span>
+        <span class="tag deg">${degreesOf(p).join("/") || "any degree"}</span>
+        ${seasonOf(p) ? `<span class="tag season">${seasonOf(p)}</span>` : ""}
+        ${(p.countries || []).map(c => `<span class="tag country">${c}</span>`).join("")}
+        <span class="posted">${postedLabel(p)}</span>
+      </summary>
+      <div class="body">${detailsOf(p)}</div>
+    </details>`).join("");
   document.getElementById("filters").innerHTML =
     STATUSES.map(s =>
       `<button class="${s === filter ? "on" : ""}" onclick="filter='${s}';render()">${s}</button>`).join("")
     + `<span style="margin:0 8px;color:#555">|</span>`
     + DEGREES.map(d =>
-      `<button class="${d === degree ? "on" : ""}" onclick="degree='${d}';render()">${d}</button>`).join("");
+      `<button class="${d === degree ? "on" : ""}" onclick="degree='${d}';render()">${d}</button>`).join("")
+    + `<span style="margin:0 8px;color:#555">|</span>`
+    + FRESH.map(f =>
+      `<button class="${f[0] === fresh ? "on" : ""}" onclick="fresh='${f[0]}';render()">${f[0]}</button>`).join("");
+  const ssel = document.getElementById("season");
+  const seasons = [...new Set(data.map(seasonOf).filter(Boolean))].sort();
+  const skeep = ssel.value || "all";
+  ssel.innerHTML = `<option value="all">all</option>` + seasons.map(x => `<option>${x}</option>`).join("");
+  ssel.value = seasons.includes(skeep) || skeep === "all" ? skeep : "all";
+  season = ssel.value;
+}
+function detailsOf(p) {
+  const parts = [];
+  if (p.qualifications) parts.push("Qualifications:\n" + p.qualifications);
+  if (p.verdict) parts.push("Verifier: " + (p.verdict.reasons || []).join("; "));
+  if (p.reject_reason) parts.push("Rejected: " + p.reject_reason);
+  parts.push("Locations: " + (p.locations || []).slice(0, 6).join("; "));
+  parts.push("Sources: " + p.sources.join(", ") + "   first seen: " + (p.first_seen || "").slice(0, 16));
+  return parts.join("\n\n");
 }
 function refreshCountryOptions() {
   const sel = document.getElementById("country");
@@ -92,7 +141,8 @@ function refreshCountryOptions() {
   const keep = sel.value;
   sel.innerHTML = `<option value="all">all</option>` +
     seen.map(c => `<option value="${c}">${c}</option>`).join("");
-  sel.value = seen.includes(keep) || keep === "all" ? keep : "all";
+  const want = keep || country;
+  sel.value = seen.includes(want) || want === "all" ? want : "all";
   country = sel.value;
 }
 async function load() {
