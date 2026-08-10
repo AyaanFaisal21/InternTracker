@@ -78,7 +78,9 @@ PAGE = """<!doctype html>
   .t { font-weight:600; font-size:15px; }
   .lbl { padding:0 9px; border-radius:2em; font-size:11.5px; font-weight:500; line-height:19px;
          display:inline-block; border:1px solid; }
-  .lbl.co      { border-color:#8b949e55; color:#c9d1d9; background:#8b949e1a; }
+  .cobox { background:#1f6feb1c; border:1px solid #1f6feb55; color:#79c0ff; font-weight:600;
+           padding:2px 12px; border-radius:6px; font-size:12.5px; min-width:110px;
+           text-align:center; flex-shrink:0; align-self:center; }
   .lbl.country { border-color:#3fb95055; color:#7ee787; background:#3fb9501a; }
   .lbl.season  { border-color:#d2992255; color:#e3b341; background:#d299221a; }
   .lbl.role    { border-color:#bc8cff55; color:#d2a8ff; background:#bc8cff1a; }
@@ -184,13 +186,11 @@ function setRole(v) { role = v; render(); }
 function setFresh(v) { fresh = v; render(); }
 function rowHtml(p) {
   const cls = p.status === "rejected" ? "closed" : (p.status === "pending" || p.status === "gated" ? "pend" : "open");
-  const labels =
-    `<span class="lbl co">${esc(p.company)}</span>`
-    + (p.countries || []).slice(0, 3).map(c => `<span class="lbl country">${esc(c)}</span>`).join("")
-    + (seasonOf(p) ? `<span class="lbl season">${esc(seasonOf(p))}</span>` : "");
   const misc =
     `<span class="lbl role">${esc(p.role)}</span> `
     + `<span class="lbl deg">${degreesOf(p).join("/") || "any degree"}</span> `
+    + (p.countries || []).slice(0, 3).map(c => `<span class="lbl country">${esc(c)}</span>`).join(" ") + " "
+    + (seasonOf(p) ? `<span class="lbl season">${esc(seasonOf(p))}</span> ` : "")
     + p.sources.map(s => `<span class="lbl src">${esc(s)}</span>`).join(" ");
   const bodyParts = [];
   if (p.qualifications) bodyParts.push("<b>Qualifications</b><br>" + esc(p.qualifications));
@@ -201,8 +201,8 @@ function rowHtml(p) {
     <summary>
       <div class="l1">
         <span class="dot">&#9679;</span>
+        <span class="cobox">${esc(p.company)}</span>
         <span class="t"><a href="${esc(p.canonical_url || p.url)}" target="_blank">${esc(p.title)}</a></span>
-        ${labels}
         <span class="posted">${postedLabel(p)}</span>
       </div>
       <div class="l2">${misc} &nbsp; ${p.status}</div>
