@@ -19,7 +19,7 @@ from typing import Callable
 import httpx
 
 from .config import Settings
-from .dates import parse_iso
+from .dates import parse_iso, parse_season
 from .detectors import (
     BROWSER_DETECTORS,
     CUSTOM_DETECTORS,
@@ -115,6 +115,7 @@ class Pipeline:
             else:
                 p.canonical_url = canonical
                 p.degree_levels = degrees
+                p.season = parse_season(p.title)
                 p.status = Status.GATED
             self.store.update(p)
 
@@ -131,6 +132,8 @@ class Pipeline:
             p.verdict = verdict
             if p.date_posted is None and verdict.date_posted:
                 p.date_posted = parse_iso(verdict.date_posted)
+            if verdict.season:
+                p.season = verdict.season
             if verdict.approved:
                 p.status = Status.VERIFIED
                 report.verified += 1

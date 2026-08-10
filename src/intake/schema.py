@@ -48,6 +48,7 @@ class RawDetection(BaseModel):
     url: str
     locations: list[str] = Field(default_factory=list)
     date_posted: datetime | None = None  # from the source payload when it carries one
+    date_posted_text: str | None = None  # raw phrasing when no parseable date
     detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     payload: dict = Field(default_factory=dict)  # raw source data, kept for the verifier
 
@@ -91,6 +92,8 @@ class Posting(BaseModel):
     locations: list[str] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
     date_posted: datetime | None = None  # source-scrape date; verdict fallback fills it
+    date_posted_text: str | None = None  # raw source phrasing when no parseable date ("Posted 30+ Days Ago")
+    season: str | None = None            # heuristic from title; verdict.season overrides
     first_seen: datetime                 # our detection clock; debugging tool, not display
     status: Status = Status.PENDING
     reject_reason: str | None = None
@@ -106,5 +109,6 @@ class Posting(BaseModel):
             locations=d.locations,
             sources=[d.source],
             date_posted=d.date_posted,
+            date_posted_text=d.date_posted_text,
             first_seen=d.detected_at,
         )

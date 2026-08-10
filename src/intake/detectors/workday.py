@@ -73,7 +73,8 @@ class WorkdayDetector:
                         title=title,
                         url=f"https://{b.host}/en-US/{b.site}{path}",
                         locations=[job.get("locationsText", "")],
-                        date_posted=parse_workday_relative(job.get("postedOn")),
+                        date_posted=(posted := parse_workday_relative(job.get("postedOn"))),
+                        date_posted_text=None if posted else job.get("postedOn"),
                         payload={
                             "req_id": bullets[0] if bullets else None,
                             "posted_on": job.get("postedOn"),

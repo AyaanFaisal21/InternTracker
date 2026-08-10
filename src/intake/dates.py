@@ -53,3 +53,24 @@ def parse_workday_relative(text: str | None) -> datetime | None:
     if word == "yesterday":
         return now - timedelta(days=1)
     return now - timedelta(days=int(m.group(2)))
+
+
+SEASON_RE = re.compile(r"\b(fall|spring|summer|winter)\b[\s,'-]*((?:20)?\d{2})?", re.IGNORECASE)
+YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+
+def parse_season(title: str) -> str | None:
+    """"Fall 2026" / "Summer 2027" from a title; bare year -> "2026";
+    None when the title carries neither (Apple's year-round umbrellas)."""
+    m = SEASON_RE.search(title)
+    if m:
+        term = m.group(1).capitalize()
+        year = m.group(2)
+        if year and len(year) == 2:
+            year = "20" + year
+        if not year:
+            ym = YEAR_RE.search(title)
+            year = ym.group(1) if ym else None
+        return f"{term} {year}" if year else term
+    ym = YEAR_RE.search(title)
+    return ym.group(1) if ym else None
