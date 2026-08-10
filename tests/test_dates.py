@@ -23,3 +23,12 @@ def test_workday_relative():
     assert parse_workday_relative("Posted Today").date() == now.date()
     assert parse_workday_relative("Posted 30+ Days Ago") is None
     assert parse_workday_relative(None) is None
+
+
+def test_parse_season():
+    from intake.dates import parse_season
+
+    assert parse_season("Software Intern (Fall 2026)") == "Fall 2026"
+    assert parse_season("SWE Intern - Summer '27") == "Summer 2027"
+    assert parse_season("PhD Research Intern - 2026") == "2026"
+    assert parse_season("Software Engineering Masters Internships") is None

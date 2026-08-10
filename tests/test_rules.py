@@ -48,3 +48,37 @@ def test_run_rules_rejects_bad_title(tmp_path):
     )
     reason, canonical, degrees, quals = run_rules(p, fixture_client({}))
     assert reason is not None and canonical is None and degrees == []
+
+
+def test_waf_block_keeps_posting(tmp_path):
+    import httpx
+
+    p = make_posting(
+        tmp_path, source=Source.GITHUB_LIST, company="Tesla",
+        title="Software Engineer Intern, AI Infrastructure",
+        url="https://www.tesla.com/careers/search/job/1?utm_source=Simplify",
+    )
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(403)))
+    reason, canonical, degrees, quals = run_rules(p, client)
+    assert reason is None
+    assert canonical == "https://www.tesla.com/careers/search/job/1"
+
+
+def test_hybrid_tech_title_passes_gate(tmp_path):
+    p = make_posting(
+        tmp_path, source=Source.GREENHOUSE, company="Cloudflare",
+        title="AI Innovation Intern - Service Sales (Fall 2026)",
+        url="https://acme.com/jobs/9",
+    )
+    client = fixture_client({"acme.com": "<p>details</p>"})
+    reason, _, _, _ = run_rules(p, client)
+    assert reason is None  # ambiguous title goes to the verifier, not rejected
+
+
+def test_pure_nontech_title_rejects(tmp_path):
+    p = make_posting(
+        tmp_path, source=Source.GREENHOUSE, company="Acme",
+        title="Sales Development Intern", url="https://acme.com/jobs/10",
+    )
+    reason, _, _, _ = run_rules(p, fixture_client({}))
+    assert reason == "non-tech role"
