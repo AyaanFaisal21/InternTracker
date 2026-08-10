@@ -28,6 +28,7 @@ from .detectors import (
     GithubListDetector,
     GreenhouseDetector,
     LeverDetector,
+    SuggestionDetector,
     WorkdayDetector,
 )
 from .schema import Posting, Status
@@ -66,6 +67,7 @@ class Pipeline:
         self.store = store or Store(settings.db_path)
         wl = settings.watchlist
         self.detectors: list[Detector] = detectors or [
+            SuggestionDetector(self.store),
             GreenhouseDetector(wl.greenhouse),
             LeverDetector(wl.lever),
             AshbyDetector(wl.ashby),

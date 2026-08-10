@@ -5,6 +5,7 @@ from .greenhouse import GreenhouseDetector
 from .lever import LeverDetector
 from .browser import BROWSER_DETECTORS
 from .custom_sites import CUSTOM_DETECTORS
+from .suggestions import SuggestionDetector
 from .workday import WorkdayDetector
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "WorkdayDetector",
     "CUSTOM_DETECTORS",
     "BROWSER_DETECTORS",
+    "SuggestionDetector",
     "AshbyDetector",
     "GithubListDetector",
 ]
