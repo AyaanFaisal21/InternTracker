@@ -1,12 +1,17 @@
 """Lazy localhost frontend. Zero dependencies beyond the stdlib.
 
-Purpose: inspect exactly what the pipeline is acquiring, per status, with
-links that go to the resolved employer page. This is a debug surface, not
-the product frontend.
+GitHub-issues-style layout: left sidebar filters, contribute banner wired
+to suggestion intake, spotlight cards, search, label-pill rows expanding
+to qualifications.
 
 Routes:
-  GET /               HTML dashboard (auto-refreshes)
-  GET /api/postings   JSON: all postings, newest first
+  GET  /                 HTML dashboard (auto-refreshes)
+  GET  /api/postings     JSON: all postings, newest first
+  GET  /api/suggestions  JSON: recent suggestions with status
+  POST /api/suggest      queue a suggestion {kind, value, company?, keywords?}
+
+NOTE: PAGE is a plain Python string. Backslash escapes inside embedded JS
+must be double-escaped or avoided; a stray \\n kills the whole script.
 """
 
 from __future__ import annotations
@@ -18,140 +23,232 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .locations import countries_of
+from .roles import classify_role
 from .store import Store
 
 PAGE = """<!doctype html>
 <meta charset="utf-8">
-<title>RUemployed intake</title>
+<title>RUemployed</title>
 <style>
-  body { font: 14px/1.5 -apple-system, system-ui, monospace; margin: 2rem; background:#111; color:#ddd; }
-  h1 { font-size: 1.2rem; } .muted { color:#888; }
-  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #2a2a2a; vertical-align: top; }
-  th { color:#888; font-weight: 600; position: sticky; top: 0; background:#111; }
-  a { color:#7ab8ff; text-decoration: none; } a:hover { text-decoration: underline; }
-  .pill { padding: 1px 8px; border-radius: 9px; font-size: 12px; }
-  .published, .verified { background:#1d3b1d; color:#8fdc8f; }
-  .rejected { background:#3b1d1d; color:#dc8f8f; }
-  .pending, .gated { background:#3b331d; color:#dccf8f; }
-  .filters button { background:#222; color:#ddd; border:1px solid #333; padding:4px 10px; margin-right:6px; cursor:pointer; border-radius:4px; }
-  .filters button.on { background:#345; }
-  .filters select { background:#222; color:#ddd; border:1px solid #333; padding:4px 8px; border-radius:4px; }
-  .filters input { background:#1a1a1a; color:#ddd; border:1px solid #333; padding:4px 8px; border-radius:4px; }
-  .reasons { color:#888; font-size: 12px; }
-  .issue { border:1px solid #2a2a2a; border-radius:6px; margin-top:8px; padding:10px 14px; }
-  .issue summary { cursor:pointer; list-style:none; display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+         margin: 0; background:#0d1117; color:#e6edf3; }
+  a { color:#4493f8; text-decoration:none; } a:hover { text-decoration:underline; }
+  .layout { display:flex; gap:24px; max-width:1400px; margin:0 auto; padding:24px; }
+  .sidebar { width:230px; flex-shrink:0; }
+  .main { flex:1; min-width:0; }
+  .side-section { margin-bottom:18px; }
+  .side-head { color:#8b949e; font-size:12px; font-weight:600; text-transform:uppercase;
+               letter-spacing:.4px; margin-bottom:6px; }
+  .side-item { display:flex; justify-content:space-between; padding:5px 10px; border-radius:6px;
+               cursor:pointer; color:#e6edf3; font-size:13.5px; }
+  .side-item:hover { background:#161b22; }
+  .side-item.on { background:#1f6feb33; border-left:2px solid #4493f8; font-weight:600; }
+  .side-item .n { color:#8b949e; font-size:12px; }
+  .side-select { width:100%; background:#161b22; color:#e6edf3; border:1px solid #30363d;
+                 border-radius:6px; padding:5px 8px; font-size:13px; }
+  .banner { border:1px solid #30363d; border-radius:8px; padding:14px 18px; margin-bottom:14px;
+            background:#161b22; }
+  .banner h3 { margin:0 0 6px; font-size:15px; }
+  .banner .muted { color:#8b949e; font-size:13px; }
+  .banner input { background:#0d1117; color:#e6edf3; border:1px solid #30363d;
+                  border-radius:6px; padding:5px 10px; margin-right:6px; font-size:13px; }
+  .banner button { background:#238636; color:#fff; border:1px solid #2ea04366; border-radius:6px;
+                   padding:5px 14px; cursor:pointer; font-size:13px; font-weight:600; }
+  .spotlights { display:flex; gap:14px; margin-bottom:14px; }
+  .spot { flex:1; border:1px solid #30363d; border-radius:8px; padding:12px 16px; background:#161b22; }
+  .spot .co { color:#8b949e; font-size:12px; }
+  .spot .t { font-weight:600; }
+  .searchrow { display:flex; gap:10px; margin-bottom:12px; }
+  .searchrow input { flex:1; background:#0d1117; color:#e6edf3; border:1px solid #30363d;
+                     border-radius:6px; padding:7px 12px; font-size:14px; }
+  .listhead { border:1px solid #30363d; border-radius:8px 8px 0 0; background:#161b22;
+              padding:10px 16px; display:flex; gap:18px; align-items:center; font-size:13.5px; }
+  .listhead .tab { cursor:pointer; color:#8b949e; font-weight:600; }
+  .listhead .tab.on { color:#e6edf3; }
+  .listhead .right { margin-left:auto; color:#8b949e; }
+  .rows { border:1px solid #30363d; border-top:none; border-radius:0 0 8px 8px; }
+  .issue { border-top:1px solid #21262d; padding:10px 16px; }
+  .issue:first-child { border-top:none; }
+  .issue summary { list-style:none; cursor:pointer; }
   .issue summary::-webkit-details-marker { display:none; }
-  .ititle { font-weight:600; font-size:15px; }
-  .tag { padding:1px 9px; border-radius:10px; font-size:11.5px; border:1px solid #333; background:#1c1c1c; color:#bbb; }
-  .tag.deg { border-color:#2c4a6e; color:#9cc4ee; }
-  .tag.season { border-color:#5a4a1e; color:#e2c76e; }
-  .tag.src { border-color:#3a3a3a; }
-  .tag.country { border-color:#2e4a2e; color:#9ed69e; }
-  .posted { color:#888; font-size:12px; margin-left:auto; }
-  .body { margin-top:10px; color:#aaa; font-size:13px; border-top:1px solid #222; padding-top:8px; white-space:pre-wrap; }
+  .l1 { display:flex; flex-wrap:wrap; gap:7px; align-items:baseline; }
+  .dot { font-size:15px; line-height:1; position:relative; top:1px; }
+  .open .dot { color:#3fb950; } .closed .dot { color:#f85149; } .pend .dot { color:#d29922; }
+  .t { font-weight:600; font-size:15px; }
+  .lbl { padding:0 9px; border-radius:2em; font-size:11.5px; font-weight:500; line-height:19px;
+         display:inline-block; border:1px solid; }
+  .lbl.co      { border-color:#8b949e55; color:#c9d1d9; background:#8b949e1a; }
+  .lbl.country { border-color:#3fb95055; color:#7ee787; background:#3fb9501a; }
+  .lbl.season  { border-color:#d2992255; color:#e3b341; background:#d299221a; }
+  .lbl.role    { border-color:#bc8cff55; color:#d2a8ff; background:#bc8cff1a; }
+  .lbl.deg     { border-color:#4493f855; color:#79c0ff; background:#4493f81a; }
+  .lbl.src     { border-color:#30363d; color:#8b949e; background:transparent; }
+  .posted { margin-left:auto; color:#8b949e; font-size:12.5px; white-space:nowrap; }
+  .l2 { color:#8b949e; font-size:12.5px; margin-top:3px; padding-left:22px; }
+  .body { margin:10px 0 4px 22px; color:#9da7b3; font-size:13px; border-left:2px solid #30363d;
+          padding-left:14px; white-space:pre-wrap; }
+  .sugstat { color:#8b949e; font-size:12px; margin-top:8px; }
 </style>
-<h1>RUemployed intake <span class="muted" id="count"></span></h1>
-<div class="filters" id="filters"></div>
-<div class="filters" style="margin-top:6px">
-  country: <select id="country" onchange="country=this.value;render()"><option value="all">all</option></select>
-  season: <select id="season" onchange="season=this.value;render()"><option value="all">all</option></select>
+<div class="layout">
+<div class="sidebar">
+  <div class="side-section"><div class="side-head">Status</div><div id="side-status"></div></div>
+  <div class="side-section"><div class="side-head">Degree</div><div id="side-degree"></div></div>
+  <div class="side-section"><div class="side-head">Role</div><div id="side-role"></div></div>
+  <div class="side-section"><div class="side-head">Posted</div><div id="side-fresh"></div></div>
+  <div class="side-section"><div class="side-head">Country</div>
+    <select class="side-select" id="country" onchange="country=this.value;render()"></select></div>
+  <div class="side-section"><div class="side-head">Season</div>
+    <select class="side-select" id="season" onchange="season=this.value;render()"></select></div>
 </div>
-<div class="filters" style="margin-top:6px">
-  <input id="sugval" placeholder="posting URL, or company name" size="42">
-  <input id="sugkw" placeholder="keywords (optional, comma sep)" size="26">
-  <button onclick="suggest()">suggest</button>
-  <span class="muted" id="sugmsg"></span>
+<div class="main">
+  <div class="banner">
+    <h3>Want to contribute?</h3>
+    <div class="muted">Know a posting we have not indexed, or a company we should watch?
+    Paste a link or a company name. Every submission is validated before it goes live.</div>
+    <div style="margin-top:8px">
+      <input id="sugval" placeholder="posting URL or company name" size="38">
+      <input id="sugkw" placeholder="keywords (optional)" size="20">
+      <button onclick="suggest()">Submit</button>
+      <span class="muted" id="sugmsg"></span>
+    </div>
+    <div class="sugstat" id="suglist"></div>
+  </div>
+  <div class="spotlights" id="spotlights"></div>
+  <div class="searchrow">
+    <input id="q" placeholder="Search title, company, qualifications" oninput="render()">
+  </div>
+  <div class="listhead">
+    <span class="tab" data-tab="open" onclick="tab='open';render()">Open <span id="n-open"></span></span>
+    <span class="tab" data-tab="closed" onclick="tab='closed';render()">Closed <span id="n-closed"></span></span>
+    <span class="right" id="count"></span>
+  </div>
+  <div class="rows" id="rows"></div>
 </div>
-<div class="muted" id="suglist" style="margin-top:4px;font-size:12px"></div>
-<div id="rows"></div>
+</div>
 <script>
-const STATUSES = ["all","pending","gated","verified","published","rejected"];
-const DEGREES = ["any","BS","MS","PhD"];
-const FRESH = [["all",Infinity],["2h",2],["8h",8],["24h",24],["2d",48],["3d",72],["1w",168]];
-let filter = "all", degree = "BS", country = "United States", fresh = "all", season = "all", data = [];
+const OPEN = ["pending", "gated", "verified", "published"];
+const DEGREES = ["any", "BS", "MS", "PhD"];
+const FRESH = [["all", Infinity], ["2h", 2], ["8h", 8], ["24h", 24], ["2d", 48], ["3d", 72], ["1w", 168]];
+const PRESTIGE = ["jane street", "openai", "anthropic", "google", "apple", "nvidia", "stripe",
+  "citadel", "hudson river trading", "two sigma", "palantir", "databricks", "microsoft", "meta"];
+let tab = "open", degree = "BS", role = "all", fresh = "all",
+    country = "United States", season = "all", data = [];
+
+function esc(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/`/g, "&#96;");
+}
 function degreesOf(p) {
   const v = p.verdict && (p.verdict.degree_levels || []).length
     ? p.verdict.degree_levels : (p.degree_levels || []);
-  return v;  // [] -> no requirement found -> open to all
+  return v;
 }
-function degreeOk(p) {
-  if (degree === "any") return true;
-  const d = degreesOf(p);
-  return d.length === 0 || d.includes(degree);
-}
-function freshOk(p) {
-  if (fresh === "all") return true;
-  if (!p.date_posted) return false;
-  const hrs = (Date.now() - new Date(p.date_posted).getTime()) / 3.6e6;
-  return hrs <= FRESH.find(f => f[0] === fresh)[1];
-}
-function seasonOf(p) {
-  return (p.verdict && p.verdict.season) || p.season || null;
+function seasonOf(p) { return (p.verdict && p.verdict.season) || p.season || null; }
+function hoursAgo(p) {
+  return p.date_posted ? (Date.now() - new Date(p.date_posted).getTime()) / 3.6e6 : null;
 }
 function postedLabel(p) {
-  if (p.date_posted) {
-    const hrs = (Date.now() - new Date(p.date_posted).getTime()) / 3.6e6;
-    if (hrs < 1) return "just now";
-    if (hrs < 24) return `${Math.floor(hrs)}h ago`;
-    if (hrs < 24 * 14) return `${Math.floor(hrs / 24)}d ago`;
-    return p.date_posted.slice(0, 10);
+  const h = hoursAgo(p);
+  if (h === null) return p.date_posted_text || "date unknown";
+  if (h < 1) return "just now";
+  if (h < 24) return Math.floor(h) + "h ago";
+  if (h < 24 * 14) return Math.floor(h / 24) + "d ago";
+  return p.date_posted.slice(0, 10);
+}
+function matches(p) {
+  if (tab === "open" ? !OPEN.includes(p.status) : p.status !== "rejected") return false;
+  const d = degreesOf(p);
+  if (degree !== "any" && d.length && !d.includes(degree)) return false;
+  if (role !== "all" && p.role !== role) return false;
+  if (fresh !== "all") {
+    const h = hoursAgo(p);
+    if (h === null || h > FRESH.find(f => f[0] === fresh)[1]) return false;
   }
-  return p.date_posted_text || "date unknown";
+  if (country !== "all" && !(p.countries || []).includes(country)) return false;
+  if (season !== "all" && seasonOf(p) !== season) return false;
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  if (q) {
+    const hay = (p.title + " " + p.company + " " + (p.qualifications || "")).toLowerCase();
+    if (!q.split(/\\s+/).every(w => hay.includes(w))) return false;
+  }
+  return true;
+}
+function sideList(el, items, current, setter) {
+  document.getElementById(el).innerHTML = items.map(([label, count]) =>
+    `<div class="side-item ${label === current ? "on" : ""}" onclick="${setter}('${label}')">
+       <span>${label}</span><span class="n">${count ?? ""}</span></div>`).join("");
+}
+function setDegree(v) { degree = v; render(); }
+function setRole(v) { role = v; render(); }
+function setFresh(v) { fresh = v; render(); }
+function rowHtml(p) {
+  const cls = p.status === "rejected" ? "closed" : (p.status === "pending" || p.status === "gated" ? "pend" : "open");
+  const labels =
+    `<span class="lbl co">${esc(p.company)}</span>`
+    + (p.countries || []).slice(0, 3).map(c => `<span class="lbl country">${esc(c)}</span>`).join("")
+    + (seasonOf(p) ? `<span class="lbl season">${esc(seasonOf(p))}</span>` : "");
+  const misc =
+    `<span class="lbl role">${esc(p.role)}</span> `
+    + `<span class="lbl deg">${degreesOf(p).join("/") || "any degree"}</span> `
+    + p.sources.map(s => `<span class="lbl src">${esc(s)}</span>`).join(" ");
+  const bodyParts = [];
+  if (p.qualifications) bodyParts.push("<b>Qualifications</b><br>" + esc(p.qualifications));
+  if (p.verdict) bodyParts.push("<b>Verifier</b><br>" + esc((p.verdict.reasons || []).join("; ") || "approved"));
+  if (p.reject_reason) bodyParts.push("<b>Rejected</b><br>" + esc(p.reject_reason));
+  bodyParts.push("<b>Locations</b><br>" + esc((p.locations || []).slice(0, 6).join("; ") || "unlisted"));
+  return `<details class="issue ${cls}">
+    <summary>
+      <div class="l1">
+        <span class="dot">&#9679;</span>
+        <span class="t"><a href="${esc(p.canonical_url || p.url)}" target="_blank">${esc(p.title)}</a></span>
+        ${labels}
+        <span class="posted">${postedLabel(p)}</span>
+      </div>
+      <div class="l2">${misc} &nbsp; ${p.status}</div>
+    </summary>
+    <div class="body">${bodyParts.join("<br><br>")}</div>
+  </details>`;
 }
 function render() {
-  const rows = data.filter(p =>
-    (filter === "all" || p.status === filter) && degreeOk(p) && freshOk(p)
-    && (season === "all" || seasonOf(p) === season)
-    && (country === "all" || (p.countries || []).includes(country)));
-  document.getElementById("count").textContent = `— ${rows.length} shown / ${data.length} total`;
-  document.getElementById("rows").innerHTML = rows.map(p => `
-    <details class="issue">
-      <summary>
-        <span class="ititle"><a href="${p.canonical_url || p.url}" target="_blank">${p.title}</a></span>
-        <span class="tag src">${p.company}</span>
-        <span class="pill ${p.status}">${p.status}</span>
-        <span class="tag deg">${degreesOf(p).join("/") || "any degree"}</span>
-        ${seasonOf(p) ? `<span class="tag season">${seasonOf(p)}</span>` : ""}
-        ${(p.countries || []).map(c => `<span class="tag country">${c}</span>`).join("")}
-        <span class="posted">${postedLabel(p)}</span>
-      </summary>
-      <div class="body">${detailsOf(p)}</div>
-    </details>`).join("");
-  document.getElementById("filters").innerHTML =
-    STATUSES.map(s =>
-      `<button class="${s === filter ? "on" : ""}" onclick="filter='${s}';render()">${s}</button>`).join("")
-    + `<span style="margin:0 8px;color:#555">|</span>`
-    + DEGREES.map(d =>
-      `<button class="${d === degree ? "on" : ""}" onclick="degree='${d}';render()">${d}</button>`).join("")
-    + `<span style="margin:0 8px;color:#555">|</span>`
-    + FRESH.map(f =>
-      `<button class="${f[0] === fresh ? "on" : ""}" onclick="fresh='${f[0]}';render()">${f[0]}</button>`).join("");
-  const ssel = document.getElementById("season");
-  const seasons = [...new Set(data.map(seasonOf).filter(Boolean))].sort();
-  const skeep = ssel.value || "all";
-  ssel.innerHTML = `<option value="all">all</option>` + seasons.map(x => `<option>${x}</option>`).join("");
-  ssel.value = seasons.includes(skeep) || skeep === "all" ? skeep : "all";
-  season = ssel.value;
+  const rows = data.filter(matches);
+  const openN = data.filter(p => OPEN.includes(p.status)).length;
+  document.getElementById("n-open").textContent = openN;
+  document.getElementById("n-closed").textContent = data.length - openN;
+  document.querySelectorAll(".tab").forEach(t =>
+    t.classList.toggle("on", t.dataset.tab === tab));
+  document.getElementById("count").textContent = rows.length + " shown";
+  document.getElementById("rows").innerHTML =
+    rows.map(rowHtml).join("") || `<div class="issue" style="color:#8b949e">no matches</div>`;
+
+  const statuses = ["all-status"].concat(OPEN).concat(["rejected"]);
+  sideList("side-degree", DEGREES.map(d => [d, data.filter(p => {
+    const dd = degreesOf(p); return d === "any" || !dd.length || dd.includes(d);
+  }).length]), degree, "setDegree");
+  const roles = ["all"].concat([...new Set(data.map(p => p.role))].sort());
+  sideList("side-role", roles.map(r => [r, r === "all" ? data.length : data.filter(p => p.role === r).length]), role, "setRole");
+  sideList("side-fresh", FRESH.map(f => [f[0], null]), fresh, "setFresh");
+  sideList("side-status", [["open", openN], ["closed", data.length - openN]], tab,
+    "(t=>{tab=t;render();})");
+  fillSelect("country", [...new Set(data.flatMap(p => p.countries || []))].sort(), () => country, v => country = v);
+  fillSelect("season", [...new Set(data.map(seasonOf).filter(Boolean))].sort(), () => season, v => season = v);
+  spotlight();
 }
-function detailsOf(p) {
-  const parts = [];
-  if (p.qualifications) parts.push("Qualifications:\\n" + p.qualifications);
-  if (p.verdict) parts.push("Verifier: " + (p.verdict.reasons || []).join("; "));
-  if (p.reject_reason) parts.push("Rejected: " + p.reject_reason);
-  parts.push("Locations: " + (p.locations || []).slice(0, 6).join("; "));
-  parts.push("Sources: " + p.sources.join(", ") + "   first seen: " + (p.first_seen || "").slice(0, 16));
-  return parts.join("\\n\\n");
+function fillSelect(id, values, get, set) {
+  const sel = document.getElementById(id);
+  const keep = sel.value || get();
+  sel.innerHTML = `<option value="all">all</option>` + values.map(v => `<option>${esc(v)}</option>`).join("");
+  sel.value = values.includes(keep) || keep === "all" ? keep : "all";
+  set(sel.value);
 }
-function refreshCountryOptions() {
-  const sel = document.getElementById("country");
-  const seen = [...new Set(data.flatMap(p => p.countries || []))].sort();
-  const keep = sel.value;
-  sel.innerHTML = `<option value="all">all</option>` +
-    seen.map(c => `<option value="${c}">${c}</option>`).join("");
-  const want = keep || country;
-  sel.value = seen.includes(want) || want === "all" ? want : "all";
-  country = sel.value;
+function spotlight() {
+  const hits = data.filter(p => OPEN.includes(p.status)
+    && PRESTIGE.includes(p.company.toLowerCase()))
+    .sort((a, b) => (b.date_posted || "").localeCompare(a.date_posted || "")).slice(0, 2);
+  document.getElementById("spotlights").innerHTML = hits.map(p => `
+    <div class="spot"><div class="co">&#9733; spotlight &middot; ${esc(p.company)}</div>
+    <div class="t"><a href="${esc(p.canonical_url || p.url)}" target="_blank">${esc(p.title)}</a></div>
+    <div class="co">${postedLabel(p)}</div></div>`).join("");
 }
 async function suggest() {
   const value = document.getElementById("sugval").value.trim();
@@ -162,19 +259,17 @@ async function suggest() {
     method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({kind, value, keywords}),
   });
-  document.getElementById("sugmsg").textContent =
-    kind === "url" ? "queued; validated next cycle" : "queued; boards probed next cycle";
+  document.getElementById("sugmsg").textContent = "queued; processed next cycle";
   document.getElementById("sugval").value = ""; document.getElementById("sugkw").value = "";
   loadSuggestions();
 }
 async function loadSuggestions() {
   const sugs = await (await fetch("/api/suggestions")).json();
-  document.getElementById("suglist").innerHTML = sugs.slice(0, 8).map(x =>
-    `[${x.status}] ${x.value.slice(0, 60)}${x.result ? " -> " + x.result : ""}`).join("<br>");
+  document.getElementById("suglist").innerHTML = sugs.slice(0, 5).map(x =>
+    `[${esc(x.status)}] ${esc(x.value.slice(0, 55))}${x.result ? " &rarr; " + esc(x.result) : ""}`).join("<br>");
 }
 async function load() {
   data = await (await fetch("/api/postings")).json();
-  refreshCountryOptions();
   render();
   loadSuggestions();
 }
@@ -194,6 +289,7 @@ def make_handler(db_path: Path):
                 for p in store.all_postings():
                     d = p.model_dump(mode="json")
                     d["countries"] = countries_of(p.locations)
+                    d["role"] = classify_role(p.title)
                     rows.append(d)
                 body = json.dumps(rows).encode()
                 self._send(200, body, "application/json")
