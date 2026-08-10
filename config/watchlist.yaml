@@ -42,6 +42,10 @@ workday:
     host: nvidia.wd5.myworkdayjobs.com
     tenant: nvidia
     site: NVIDIAExternalCareerSite
+  - company: Schweitzer Engineering Laboratories
+    host: selinc.wd1.myworkdayjobs.com
+    tenant: selinc
+    site: SEL
 
 # Backstop: community list repos. Wide coverage, minutes-to-hours latency.
 # Entries resolve to the employer's own page before publish — the aggregator
