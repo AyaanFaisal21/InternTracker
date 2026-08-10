@@ -125,8 +125,8 @@ LANDING = """<!doctype html>
         <span>updated continuously</span></div>
     </div>
     <div class="pin">
-      <div><span>&#128214;</span> <a class="name" href="/listings?repo=Summer+%2727&amp;degree=BS&amp;season=Summer+2027">Summer '27</a><span class="pub">Public</span></div>
-      <div class="desc">Bachelors, Summer 2027</div>
+      <div><span>&#128214;</span> <a class="name" href="/listings?repo=%2727+Cycle&amp;degree=BS&amp;season=cycle:2027">'27 Cycle</a><span class="pub">Public</span></div>
+      <div class="desc">Bachelors, every 2027 season</div>
       <div class="foot"><span><span class="gdot">&#9679;</span> internships</span>
         <span>&#9733; <span id="livecount27">&hellip;</span> open</span></div>
     </div>
@@ -144,8 +144,13 @@ LANDING = """<!doctype html>
       <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
     </div>
     <div class="repo">
-      <div><a class="rname" href="/listings?repo=Winter+%2726&amp;degree=BS&amp;season=Winter+2026">Winter '26</a><span class="pub">Public</span></div>
-      <div class="rdesc">Undergraduate internships, Winter 2026</div>
+      <div><a class="rname" href="/listings?repo=Fall+%2726&amp;degree=BS&amp;season=Fall+2026">Fall '26</a><span class="pub">Public</span></div>
+      <div class="rdesc">Undergraduate internships, Fall 2026</div>
+      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
+    </div>
+    <div class="repo">
+      <div><a class="rname" href="/listings?repo=Winter+%2727&amp;degree=BS&amp;season=Winter+2027">Winter '27</a><span class="pub">Public</span></div>
+      <div class="rdesc">Undergraduate internships, Winter 2027</div>
       <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
     </div>
     <div class="repo">
@@ -180,7 +185,7 @@ fetch("/api/postings").then(r => r.json()).then(d => {
     ? p.verdict.degree_levels : (p.degree_levels || []));
   const sea = p => (p.verdict && p.verdict.season) || p.season || null;
   document.getElementById("livecount27").textContent = d.filter(p => isOpen(p)
-    && (!deg(p).length || deg(p).includes("BS")) && sea(p) === "Summer 2027").length;
+    && (!deg(p).length || deg(p).includes("BS")) && (sea(p) || "").includes("2027")).length;
 });
 </script>
 """
@@ -362,7 +367,12 @@ function matches(p) {
     if (h === null || h > FRESH.find(f => f[0] === fresh)[1]) return false;
   }
   if (country !== "all" && !(p.countries || []).includes(country)) return false;
-  if (season !== "all" && seasonOf(p) !== season) return false;
+  if (season !== "all") {
+    const sv = seasonOf(p) || "";
+    if (season.startsWith("cycle:")) {
+      if (!sv.includes(season.slice(6))) return false;
+    } else if (sv !== season) return false;
+  }
   const q = document.getElementById("q").value.trim().toLowerCase();
   if (q) {
     const hay = (p.title + " " + p.company + " " + (p.qualifications || "")).toLowerCase();
@@ -428,8 +438,9 @@ function render() {
   country = fillOpts("f-country", [["all", "all"]].concat(cs.map(c => [c, c])),
     cs.includes(country) || country === "all" ? country : "all") || "all";
   const ss = [...new Set(data.map(seasonOf).filter(Boolean))].sort();
-  season = fillOpts("f-season", [["all", "all"]].concat(ss.map(x => [x, x])),
-    ss.includes(season) || season === "all" ? season : "all") || "all";
+  const sOpts = [["all", "all"], ["cycle:2027", "2027 cycle"]].concat(ss.map(x => [x, x]));
+  season = fillOpts("f-season", sOpts,
+    sOpts.some(o => o[0] === season) ? season : "all") || "all";
   spotlight();
 }
 function spotlight() {
