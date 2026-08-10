@@ -128,12 +128,12 @@ function render() {
 }
 function detailsOf(p) {
   const parts = [];
-  if (p.qualifications) parts.push("Qualifications:\n" + p.qualifications);
+  if (p.qualifications) parts.push("Qualifications:\\n" + p.qualifications);
   if (p.verdict) parts.push("Verifier: " + (p.verdict.reasons || []).join("; "));
   if (p.reject_reason) parts.push("Rejected: " + p.reject_reason);
   parts.push("Locations: " + (p.locations || []).slice(0, 6).join("; "));
   parts.push("Sources: " + p.sources.join(", ") + "   first seen: " + (p.first_seen || "").slice(0, 16));
-  return parts.join("\n\n");
+  return parts.join("\\n\\n");
 }
 function refreshCountryOptions() {
   const sel = document.getElementById("country");
