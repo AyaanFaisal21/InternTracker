@@ -80,7 +80,8 @@ LANDING = """<!doctype html>
   .notif:hover { background:#30363d; }
   h3.sec { font-size:16px; font-weight:400; color:#e6edf3; margin:8px 0 12px; }
   .pins { display:flex; gap:16px; }
-  .pin { width:49%; border:1px solid #30363d; border-radius:8px; background:#0d1117;
+  .pin.dim { opacity:.55; }
+  .pin { width:32%; border:1px solid #30363d; border-radius:8px; background:#0d1117;
          padding:16px 18px; }
   .pin .name { font-weight:600; }
   .pin .pub { border:1px solid #30363d; color:#8b949e; border-radius:2em; padding:0 8px;
@@ -129,6 +130,12 @@ LANDING = """<!doctype html>
       <div class="desc">Bachelors, every 2027 season</div>
       <div class="foot"><span><span class="gdot">&#9679;</span> internships</span>
         <span>&#9733; <span id="livecount27">&hellip;</span> open</span></div>
+    </div>
+    <div class="pin dim">
+      <div><span>&#128214;</span> <span class="name" style="color:#8b949e">events</span><span class="pub">Coming soon</span></div>
+      <div class="desc">Company interest meetings, hackathons, recruiting events. Soft
+      tunnels into the hiring pipeline.</div>
+      <div class="foot"><span><span class="gdot" style="color:#d29922">&#9679;</span> events</span></div>
     </div>
   </div>
   <h3 class="sec">Repositories</h3>
