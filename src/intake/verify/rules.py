@@ -20,17 +20,26 @@ from ..schema import DegreeLevel, Posting, Source
 DISQUALIFYING_RE = re.compile(
     r"unpaid|ambassador|brand rep|commission[- ]only|volunteer", re.IGNORECASE
 )
-NON_SWE_RE = re.compile(
+NON_TECH_RE = re.compile(
     r"\b(sales|marketing|recruit(er|ing)|hr\b|legal|finance intern|accounting)\b",
+    re.IGNORECASE,
+)
+# Tech signal broad enough to rescue hybrid titles ("AI Innovation Intern -
+# Service Sales"). Ambiguous titles go to the verifier, not the reject pile.
+TECH_SIGNAL_RE = re.compile(
+    r"software|engineer|developer|\bai\b|\bml\b|machine learning|data"
+    r"|technical|technology|product manage|program manage|forward[- ]deployed"
+    r"|solutions? engineer|deployment strategist",
     re.IGNORECASE,
 )
 
 
 def check_title(p: Posting) -> str | None:
+    """Hard-reject only unambiguous cases. The verifier owns the gray zone."""
     if DISQUALIFYING_RE.search(p.title):
         return "disqualifying term in title"
-    if NON_SWE_RE.search(p.title):
-        return "non-SWE role"
+    if NON_TECH_RE.search(p.title) and not TECH_SIGNAL_RE.search(p.title):
+        return "non-tech role"
     return None
 
 
