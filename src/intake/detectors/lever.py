@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import httpx
 
+from ..dates import parse_epoch
 from ..schema import RawDetection, Source
 from .base import looks_like_swe_internship
 
@@ -39,6 +40,7 @@ class LeverDetector:
                         company=slug,
                         title=title,
                         url=job.get("hostedUrl", ""),
+                        date_posted=parse_epoch(job.get("createdAt")),
                         locations=[cats.get("location", "")],
                         payload={"lever_id": job.get("id")},
                     )

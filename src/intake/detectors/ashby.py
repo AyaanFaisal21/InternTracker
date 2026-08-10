@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import httpx
 
+from ..dates import parse_iso
 from ..schema import RawDetection, Source
 from .base import looks_like_swe_internship
 

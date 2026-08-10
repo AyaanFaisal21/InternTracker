@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from ..dates import parse_epoch
 from ..schema import RawDetection, Source
 from .base import looks_like_swe_internship
 
@@ -50,12 +51,14 @@ class GithubListDetector:
                 ts = e.get("date_posted") or e.get("date_updated") or 0
                 if ts and datetime.fromtimestamp(ts, tz=timezone.utc) < cutoff:
                     continue
+                posted = parse_epoch(ts)
                 out.append(
                     RawDetection(
                         source=Source.GITHUB_LIST,
                         company=e.get("company_name", ""),
                         title=title,
                         url=e.get("url", ""),
+                        date_posted=posted,
                         locations=e.get("locations", []),
                         detected_at=datetime.fromtimestamp(ts, tz=timezone.utc)
                         if ts

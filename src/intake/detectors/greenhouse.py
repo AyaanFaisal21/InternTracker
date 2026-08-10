@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import httpx
 
+from ..dates import parse_iso
 from ..schema import RawDetection, Source
 from .base import looks_like_swe_internship
 
@@ -40,6 +41,9 @@ class GreenhouseDetector:
                         title=title,
                         url=job.get("absolute_url", ""),
                         locations=[job.get("location", {}).get("name", "")],
+                        date_posted=parse_iso(
+                            job.get("first_published") or job.get("updated_at")
+                        ),
                         payload={"gh_job_id": job.get("id")},
                     )
                 )

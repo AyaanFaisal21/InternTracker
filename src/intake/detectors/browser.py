@@ -19,6 +19,7 @@ TODO: tiktok/bytedance, meta.
 
 from __future__ import annotations
 
+from ..dates import parse_iso
 from ..schema import RawDetection, Source
 from .base import looks_like_swe_internship
 
@@ -45,6 +46,7 @@ def parse_apple_results(res: dict) -> list[RawDetection]:
                 title=title,
                 url=f"https://jobs.apple.com/en-us/details/{pos_id}/{slug}",
                 locations=[loc.get("name", "") for loc in locs if isinstance(loc, dict)],
+                date_posted=parse_iso(j.get("postDateInGMT")),
                 payload={"position_id": pos_id, "req_id": j.get("reqId")},
             )
         )

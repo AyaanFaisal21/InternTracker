@@ -18,6 +18,7 @@ from __future__ import annotations
 import httpx
 
 from ..config import WorkdayBoard
+from ..dates import parse_workday_relative
 from ..schema import RawDetection, Source
 from .base import looks_like_swe_internship
 
@@ -72,6 +73,7 @@ class WorkdayDetector:
                         title=title,
                         url=f"https://{b.host}/en-US/{b.site}{path}",
                         locations=[job.get("locationsText", "")],
+                        date_posted=parse_workday_relative(job.get("postedOn")),
                         payload={
                             "req_id": bullets[0] if bullets else None,
                             "posted_on": job.get("postedOn"),

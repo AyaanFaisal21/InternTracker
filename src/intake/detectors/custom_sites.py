@@ -15,6 +15,7 @@ import re
 
 import httpx
 
+from ..dates import parse_iso
 from ..schema import RawDetection, Source
 from .base import looks_like_swe_internship
 
@@ -109,6 +110,7 @@ class MicrosoftDetector:
                         title=title,
                         url=f"https://jobs.careers.microsoft.com/global/en/job/{job_id}/",
                         locations=[loc for loc in locs if loc],
+                        date_posted=parse_iso(props.get("postingDate") or job.get("postingDate")),
                         payload={"job_id": job_id},
                     )
                 )
