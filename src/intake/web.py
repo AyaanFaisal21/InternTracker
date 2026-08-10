@@ -37,6 +37,7 @@ PAGE = """<!doctype html>
   .filters button { background:#222; color:#ddd; border:1px solid #333; padding:4px 10px; margin-right:6px; cursor:pointer; border-radius:4px; }
   .filters button.on { background:#345; }
   .filters select { background:#222; color:#ddd; border:1px solid #333; padding:4px 8px; border-radius:4px; }
+  .filters input { background:#1a1a1a; color:#ddd; border:1px solid #333; padding:4px 8px; border-radius:4px; }
   .reasons { color:#888; font-size: 12px; }
   .issue { border:1px solid #2a2a2a; border-radius:6px; margin-top:8px; padding:10px 14px; }
   .issue summary { cursor:pointer; list-style:none; display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; }
@@ -56,6 +57,13 @@ PAGE = """<!doctype html>
   country: <select id="country" onchange="country=this.value;render()"><option value="all">all</option></select>
   season: <select id="season" onchange="season=this.value;render()"><option value="all">all</option></select>
 </div>
+<div class="filters" style="margin-top:6px">
+  <input id="sugval" placeholder="posting URL, or company name" size="42">
+  <input id="sugkw" placeholder="keywords (optional, comma sep)" size="26">
+  <button onclick="suggest()">suggest</button>
+  <span class="muted" id="sugmsg"></span>
+</div>
+<div class="muted" id="suglist" style="margin-top:4px;font-size:12px"></div>
 <div id="rows"></div>
 <script>
 const STATUSES = ["all","pending","gated","verified","published","rejected"];
@@ -145,10 +153,30 @@ function refreshCountryOptions() {
   sel.value = seen.includes(want) || want === "all" ? want : "all";
   country = sel.value;
 }
+async function suggest() {
+  const value = document.getElementById("sugval").value.trim();
+  if (!value) return;
+  const keywords = document.getElementById("sugkw").value.trim();
+  const kind = value.startsWith("http") ? "url" : "company";
+  await fetch("/api/suggest", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({kind, value, keywords}),
+  });
+  document.getElementById("sugmsg").textContent =
+    kind === "url" ? "queued; validated next cycle" : "queued; boards probed next cycle";
+  document.getElementById("sugval").value = ""; document.getElementById("sugkw").value = "";
+  loadSuggestions();
+}
+async function loadSuggestions() {
+  const sugs = await (await fetch("/api/suggestions")).json();
+  document.getElementById("suglist").innerHTML = sugs.slice(0, 8).map(x =>
+    `[${x.status}] ${x.value.slice(0, 60)}${x.result ? " -> " + x.result : ""}`).join("<br>");
+}
 async function load() {
   data = await (await fetch("/api/postings")).json();
   refreshCountryOptions();
   render();
+  loadSuggestions();
 }
 load(); setInterval(load, 30000);
 </script>
@@ -169,6 +197,31 @@ def make_handler(db_path: Path):
                     rows.append(d)
                 body = json.dumps(rows).encode()
                 self._send(200, body, "application/json")
+            elif self.path.startswith("/api/suggestions"):
+                store = Store(db_path)
+                self._send(200, json.dumps(store.recent_suggestions()).encode(), "application/json")
+            else:
+                self._send(404, b"not found", "text/plain")
+
+        def do_POST(self):
+            if self.path == "/api/suggest":
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}")
+                    kind = body.get("kind", "company")
+                    value = str(body.get("value", "")).strip()
+                    if kind not in ("url", "company") or not value:
+                        raise ValueError("bad suggestion")
+                except (ValueError, json.JSONDecodeError):
+                    self._send(400, b"bad request", "text/plain")
+                    return
+                store = Store(db_path)
+                sid = store.add_suggestion(
+                    kind, value,
+                    company=body.get("company") or None,
+                    keywords=body.get("keywords") or None,
+                )
+                self._send(200, json.dumps({"id": sid}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
 
