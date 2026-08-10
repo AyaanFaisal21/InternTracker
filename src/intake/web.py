@@ -1,17 +1,18 @@
 """Lazy localhost frontend. Zero dependencies beyond the stdlib.
 
-GitHub-issues-style layout: left sidebar filters, contribute banner wired
-to suggestion intake, spotlight cards, search, label-pill rows expanding
-to qualifications.
+Two pages, GitHub-styled:
+  /          org-profile landing (brand header, pinned "listings" card)
+  /listings  the board: sidebar filters, contribute banner, spotlights,
+             search, label-pill rows expanding to qualifications
 
 Routes:
-  GET  /                 HTML dashboard (auto-refreshes)
   GET  /api/postings     JSON: all postings, newest first
   GET  /api/suggestions  JSON: recent suggestions with status
   POST /api/suggest      queue a suggestion {kind, value, company?, keywords?}
+  POST /api/visit        record a page open {page}
 
-NOTE: PAGE is a plain Python string. Backslash escapes inside embedded JS
-must be double-escaped or avoided; a stray \\n kills the whole script.
+NOTE: PAGE strings are plain Python strings. Backslash escapes inside
+embedded JS must be double-escaped or avoided; a stray \\n kills the script.
 """
 
 from __future__ import annotations
@@ -26,28 +27,131 @@ from .locations import countries_of
 from .roles import classify_role
 from .store import Store
 
-PAGE = """<!doctype html>
-<meta charset="utf-8">
-<title>RUemployed</title>
-<style>
+BASE_CSS = """
   * { box-sizing: border-box; }
   body { font: 14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
          margin: 0; background:#0d1117; color:#e6edf3; }
   a { color:#4493f8; text-decoration:none; } a:hover { text-decoration:underline; }
-  .layout { display:flex; gap:24px; max-width:1400px; margin:0 auto; padding:24px; }
-  .sidebar { width:230px; flex-shrink:0; }
+  .topbar { background:#010409; border-bottom:1px solid #21262d; padding:10px 20px;
+            display:flex; align-items:center; gap:14px; }
+  .burger { color:#8b949e; border:1px solid #30363d; border-radius:6px; padding:2px 8px;
+            font-size:15px; }
+  .brand { font-size:15.5px; font-weight:600; color:#e6edf3; }
+  .brand:hover { text-decoration:none; }
+  .brand .ru { color:#f85149; }
+  .crumb { color:#8b949e; font-weight:400; }
+  .crumb a { color:#e6edf3; font-weight:600; }
+  .topsearch { margin-left:auto; background:#0d1117; border:1px solid #30363d; color:#8b949e;
+               border-radius:6px; padding:4px 12px; font-size:13px; width:240px; }
+"""
+
+TOPBAR_HOME = """<div class="topbar">
+  <span class="burger">&#9776;</span>
+  <a class="brand" href="/"><span class="ru">RU</span>employed</a>
+  <input class="topsearch" placeholder="Type / to search" disabled>
+</div>"""
+
+TOPBAR_LISTINGS = """<div class="topbar">
+  <span class="burger">&#9776;</span>
+  <span class="brand"><a class="brand" href="/"><span class="ru">RU</span>employed</a>
+    <span class="crumb"> &middot; <a href="/listings">Listings</a></span></span>
+  <input class="topsearch" placeholder="Type / to search" disabled>
+</div>"""
+
+LANDING = """<!doctype html>
+<meta charset="utf-8">
+<title>RUemployed</title>
+<style>""" + BASE_CSS + """
+  .wrap { max-width:1010px; margin:0 auto; padding:0 20px; }
+  .tabs { border-bottom:1px solid #21262d; display:flex; gap:8px; padding:0 20px; }
+  .tabs .tab { padding:10px 12px; color:#e6edf3; font-size:14px; border-bottom:2px solid transparent; }
+  .tabs .tab.on { border-bottom-color:#f78166; font-weight:600; }
+  .tabs .n { background:#30363d; border-radius:2em; padding:0 8px; font-size:12px; color:#c9d1d9; }
+  .profile { display:flex; gap:22px; align-items:flex-start; margin:34px 0 26px; }
+  .avatar { width:76px; height:76px; border-radius:12px; background:#161b22; border:1px solid #30363d;
+            display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:700; }
+  .avatar span { color:#f85149; }
+  .pname { font-size:24px; font-weight:600; margin:0; }
+  .verified { border:1px solid #3fb95055; color:#7ee787; border-radius:2em; padding:0 10px;
+              font-size:12px; display:inline-block; margin-top:4px; }
+  .pmeta { color:#8b949e; font-size:13.5px; margin-top:8px; }
+  .notif { margin-left:auto; background:#21262d; color:#e6edf3; border:1px solid #30363d;
+           border-radius:6px; padding:5px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+  .notif:hover { background:#30363d; }
+  h3.sec { font-size:16px; font-weight:400; color:#e6edf3; margin:8px 0 12px; }
+  .pins { display:flex; gap:16px; }
+  .pin { width:49%; border:1px solid #30363d; border-radius:8px; background:#0d1117;
+         padding:16px 18px; }
+  .pin .name { font-weight:600; }
+  .pin .pub { border:1px solid #30363d; color:#8b949e; border-radius:2em; padding:0 8px;
+              font-size:12px; margin-left:6px; }
+  .pin .desc { color:#8b949e; font-size:13px; margin:8px 0 14px; }
+  .pin .foot { color:#8b949e; font-size:12.5px; display:flex; gap:14px; }
+  .gdot { color:#3fb950; }
+</style>
+""" + TOPBAR_HOME + """
+<div class="tabs">
+  <span class="tab on">Overview</span>
+  <span class="tab">Repositories <span class="n">1</span></span>
+</div>
+<div class="wrap">
+  <div class="profile">
+    <div class="avatar"><span>RU</span></div>
+    <div>
+      <p class="pname"><span style="color:#f85149">RU</span>employed</p>
+      <span class="verified">Verified &middot; scarlet knights build here</span>
+      <div class="pmeta">&#128101; Rutgers CS students &nbsp; &#128205; New Brunswick, NJ
+        &nbsp; &#128279; <a href="/listings">/listings</a></div>
+    </div>
+    <button class="notif" onclick="this.textContent='coming soon'">Notification settings</button>
+  </div>
+  <h3 class="sec">Pinned</h3>
+  <div class="pins">
+    <div class="pin">
+      <div><span>&#128214;</span> <a class="name" href="/listings">listings</a><span class="pub">Public</span></div>
+      <div class="desc">What you're here for</div>
+      <div class="foot"><span><span class="gdot">&#9679;</span> Internships</span>
+        <span>&#9733; <span id="livecount">&hellip;</span> open</span>
+        <span>updated continuously</span></div>
+    </div>
+  </div>
+</div>
+<script>
+fetch("/api/visit", {method: "POST", headers: {"Content-Type": "application/json"},
+  body: JSON.stringify({page: "landing"})});
+fetch("/api/postings").then(r => r.json()).then(d => {
+  const open = d.filter(p => ["pending","gated","verified","published"].includes(p.status)).length;
+  document.getElementById("livecount").textContent = open;
+});
+</script>
+"""
+
+PAGE = """<!doctype html>
+<meta charset="utf-8">
+<title>RUemployed &middot; Listings</title>
+<style>""" + BASE_CSS + """
+  .layout { display:flex; gap:20px; max-width:1400px; margin:0 auto; padding:18px 20px 18px 12px; }
+  .sidebar { width:200px; flex-shrink:0; display:flex; flex-direction:column; }
+  .layout.collapsed .sidebar { display:none; }
   .main { flex:1; min-width:0; }
-  .side-section { margin-bottom:18px; }
-  .side-head { color:#8b949e; font-size:12px; font-weight:600; text-transform:uppercase;
-               letter-spacing:.4px; margin-bottom:6px; }
-  .side-item { display:flex; justify-content:space-between; padding:5px 10px; border-radius:6px;
-               cursor:pointer; color:#e6edf3; font-size:13.5px; }
+  .side-section { margin-bottom:14px; }
+  .side-head { color:#8b949e; font-size:11.5px; font-weight:600; text-transform:uppercase;
+               letter-spacing:.4px; margin:0 0 4px 8px; }
+  .side-item { display:flex; justify-content:space-between; padding:3px 8px; border-radius:6px;
+               cursor:pointer; color:#e6edf3; font-size:13px; }
   .side-item:hover { background:#161b22; }
-  .side-item.on { background:#1f6feb33; border-left:2px solid #4493f8; font-weight:600; }
+  .side-item.on { background:#1f6feb33; box-shadow:inset 2px 0 0 #4493f8; font-weight:600; }
   .side-item .n { color:#8b949e; font-size:12px; }
   .side-select { width:100%; background:#161b22; color:#e6edf3; border:1px solid #30363d;
-                 border-radius:6px; padding:5px 8px; font-size:13px; }
-  .banner { border:1px solid #30363d; border-radius:8px; padding:14px 18px; margin-bottom:14px;
+                 border-radius:6px; padding:4px 8px; font-size:13px; }
+  .side-collapse { margin-top:auto; color:#8b949e; font-size:13px; cursor:pointer;
+                   padding:6px 8px; border-radius:6px; }
+  .side-collapse:hover { background:#161b22; color:#e6edf3; }
+  .expand-btn { position:fixed; bottom:16px; left:12px; background:#161b22; color:#8b949e;
+                border:1px solid #30363d; border-radius:6px; padding:4px 10px; cursor:pointer;
+                display:none; font-size:14px; }
+  .layout.collapsed ~ .expand-btn, body:has(.layout.collapsed) .expand-btn { display:block; }
+  .banner { border:1px solid #30363d; border-radius:8px; padding:12px 16px; margin-bottom:12px;
             background:#161b22; }
   .banner h3 { margin:0 0 6px; font-size:15px; }
   .banner .muted { color:#8b949e; font-size:13px; }
@@ -55,24 +159,24 @@ PAGE = """<!doctype html>
                   border-radius:6px; padding:5px 10px; margin-right:6px; font-size:13px; }
   .banner button { background:#238636; color:#fff; border:1px solid #2ea04366; border-radius:6px;
                    padding:5px 14px; cursor:pointer; font-size:13px; font-weight:600; }
-  .spotlights { display:flex; gap:14px; margin-bottom:14px; }
-  .spot { flex:1; border:1px solid #30363d; border-radius:8px; padding:12px 16px; background:#161b22; }
+  .spotlights { display:flex; gap:12px; margin-bottom:12px; }
+  .spot { flex:1; border:1px solid #30363d; border-radius:8px; padding:10px 14px; background:#161b22; }
   .spot .co { color:#8b949e; font-size:12px; }
   .spot .t { font-weight:600; }
-  .searchrow { display:flex; gap:10px; margin-bottom:12px; }
+  .searchrow { display:flex; gap:10px; margin-bottom:10px; }
   .searchrow input { flex:1; background:#0d1117; color:#e6edf3; border:1px solid #30363d;
                      border-radius:6px; padding:7px 12px; font-size:14px; }
   .listhead { border:1px solid #30363d; border-radius:8px 8px 0 0; background:#161b22;
-              padding:10px 16px; display:flex; gap:18px; align-items:center; font-size:13.5px; }
+              padding:9px 16px; display:flex; gap:18px; align-items:center; font-size:13.5px; }
   .listhead .tab { cursor:pointer; color:#8b949e; font-weight:600; }
   .listhead .tab.on { color:#e6edf3; }
   .listhead .right { margin-left:auto; color:#8b949e; }
   .rows { border:1px solid #30363d; border-top:none; border-radius:0 0 8px 8px; }
-  .issue { border-top:1px solid #21262d; padding:10px 16px; }
+  .issue { border-top:1px solid #21262d; padding:9px 16px; }
   .issue:first-child { border-top:none; }
   .issue summary { list-style:none; cursor:pointer; }
   .issue summary::-webkit-details-marker { display:none; }
-  .l1 { display:flex; flex-wrap:wrap; gap:7px; align-items:baseline; }
+  .l1 { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; }
   .dot { font-size:15px; line-height:1; position:relative; top:1px; }
   .open .dot { color:#3fb950; } .closed .dot { color:#f85149; } .pend .dot { color:#d29922; }
   .t { font-weight:600; font-size:15px; }
@@ -92,7 +196,8 @@ PAGE = """<!doctype html>
           padding-left:14px; white-space:pre-wrap; }
   .sugstat { color:#8b949e; font-size:12px; margin-top:8px; }
 </style>
-<div class="layout">
+""" + TOPBAR_LISTINGS + """
+<div class="layout" id="layout">
 <div class="sidebar">
   <div class="side-section"><div class="side-head">Status</div><div id="side-status"></div></div>
   <div class="side-section"><div class="side-head">Degree</div><div id="side-degree"></div></div>
@@ -102,6 +207,7 @@ PAGE = """<!doctype html>
     <select class="side-select" id="country" onchange="country=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Season</div>
     <select class="side-select" id="season" onchange="season=this.value;render()"></select></div>
+  <div class="side-collapse" onclick="toggleSide(true)">&#10094; Collapse sidebar</div>
 </div>
 <div class="main">
   <div class="banner">
@@ -128,6 +234,7 @@ PAGE = """<!doctype html>
   <div class="rows" id="rows"></div>
 </div>
 </div>
+<div class="expand-btn" onclick="toggleSide(false)">&#10095;</div>
 <script>
 const OPEN = ["pending", "gated", "verified", "published"];
 const DEGREES = ["any", "BS", "MS", "PhD"];
@@ -136,6 +243,15 @@ const PRESTIGE = ["jane street", "openai", "anthropic", "google", "apple", "nvid
   "citadel", "hudson river trading", "two sigma", "palantir", "databricks", "microsoft", "meta"];
 let tab = "open", degree = "BS", role = "all", fresh = "all",
     country = "United States", season = "all", data = [];
+
+fetch("/api/visit", {method: "POST", headers: {"Content-Type": "application/json"},
+  body: JSON.stringify({page: "listings"})});
+
+function toggleSide(collapse) {
+  document.getElementById("layout").classList.toggle("collapsed", collapse);
+  localStorage.setItem("sbc", collapse ? "1" : "");
+}
+if (localStorage.getItem("sbc") === "1") toggleSide(true);
 
 function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -221,7 +337,6 @@ function render() {
   document.getElementById("rows").innerHTML =
     rows.map(rowHtml).join("") || `<div class="issue" style="color:#8b949e">no matches</div>`;
 
-  const statuses = ["all-status"].concat(OPEN).concat(["rejected"]);
   sideList("side-degree", DEGREES.map(d => [d, data.filter(p => {
     const dd = degreesOf(p); return d === "any" || !dd.length || dd.includes(d);
   }).length]), degree, "setDegree");
@@ -282,6 +397,8 @@ def make_handler(db_path: Path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/":
+                self._send(200, LANDING.encode(), "text/html; charset=utf-8")
+            elif self.path == "/listings":
                 self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             elif self.path.startswith("/api/postings"):
                 store = Store(db_path)  # per-request connection: thread-safe
@@ -301,14 +418,12 @@ def make_handler(db_path: Path):
 
         def do_POST(self):
             if self.path == "/api/suggest":
-                length = int(self.headers.get("Content-Length", 0))
-                try:
-                    body = json.loads(self.rfile.read(length) or b"{}")
-                    kind = body.get("kind", "company")
-                    value = str(body.get("value", "")).strip()
-                    if kind not in ("url", "company") or not value:
-                        raise ValueError("bad suggestion")
-                except (ValueError, json.JSONDecodeError):
+                body = self._json_body()
+                if body is None:
+                    return
+                kind = body.get("kind", "company")
+                value = str(body.get("value", "")).strip()
+                if kind not in ("url", "company") or not value:
                     self._send(400, b"bad request", "text/plain")
                     return
                 store = Store(db_path)
@@ -318,8 +433,23 @@ def make_handler(db_path: Path):
                     keywords=body.get("keywords") or None,
                 )
                 self._send(200, json.dumps({"id": sid}).encode(), "application/json")
+            elif self.path == "/api/visit":
+                body = self._json_body()
+                if body is None:
+                    return
+                page = str(body.get("page", "unknown"))[:40]
+                Store(db_path).record_visit(page, self.headers.get("User-Agent", "")[:200])
+                self._send(200, b"{}", "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
+
+        def _json_body(self):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                return json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                self._send(400, b"bad request", "text/plain")
+                return None
 
         def _send(self, code: int, body: bytes, ctype: str):
             self.send_response(code)

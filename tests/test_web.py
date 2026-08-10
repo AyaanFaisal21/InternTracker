@@ -56,6 +56,13 @@ def test_dashboard_serves_html_and_json(tmp_path):
         assert html is not None, "server never came up"
         assert html.status_code == 200 and "RUemployed" in html.text
 
+        board = httpx.get(f"{base}/listings")
+        assert board.status_code == 200 and "Want to contribute" in board.text
+
+        visit = httpx.post(f"{base}/api/visit", json={"page": "landing"})
+        assert visit.status_code == 200
+        assert Store(db).visit_count() == 1
+
         api = httpx.get(f"{base}/api/postings")
         assert api.status_code == 200
         postings = api.json()
