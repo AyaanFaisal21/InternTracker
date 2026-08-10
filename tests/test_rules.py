@@ -82,3 +82,19 @@ def test_pure_nontech_title_rejects(tmp_path):
     )
     reason, _, _, _ = run_rules(p, fixture_client({}))
     assert reason == "non-tech role"
+
+
+def test_timeout_keeps_posting(tmp_path):
+    import httpx
+
+    def boom(request):
+        raise httpx.ReadTimeout("slow site")
+
+    p = make_posting(
+        tmp_path, source=Source.GITHUB_LIST, company="Roblox",
+        title="Software Engineer Intern", url="https://careers.roblox.com/jobs/1",
+    )
+    client = httpx.Client(transport=httpx.MockTransport(boom))
+    reason, canonical, degrees, quals = run_rules(p, client)
+    assert reason is None
+    assert canonical == "https://careers.roblox.com/jobs/1"

@@ -56,9 +56,10 @@ def run_rules(
     if reason:
         return reason, None, [], None
     reason, canonical, page_text = resolve_canonical(p.url, client)
-    if reason and ("403" in reason or "429" in reason):
-        # WAF block, not a dead posting (Tesla et al. reject bot clients).
-        # Keep the source URL; the verifier or a browser pass judges later.
+    if reason and ("403" in reason or "429" in reason or "unreachable" in reason):
+        # WAF block or transient network failure, not a dead posting (Tesla
+        # 403s bot clients; Roblox timed out mid-sweep while fully live).
+        # Keep the source URL; the verifier or a later pass judges.
         canonical, page_text, reason = strip_tracking(p.url), "", None
     if reason:
         return reason, None, [], None
