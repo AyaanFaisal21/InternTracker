@@ -62,4 +62,15 @@ def test_company_probe_no_board(tmp_path):
 
 
 def test_slugify_variants():
-    assert slugify("Jane Street") == ["janestreet", "jane-street"]
+    got = slugify("Anduril Industries")
+    assert "andurilindustries" in got and "anduril" in got
+
+
+def test_keyword_intern_does_not_match_international():
+    from intake.detectors.suggestions import _kw_match
+
+    assert not _kw_match("intern", "international deployment manager")
+    assert _kw_match("intern", "software engineer intern")
+    assert _kw_match("intern", "software engineering internships")
+    assert _kw_match("fpga", "fpga engineer")
+    assert not _kw_match("fpga", "afpgab nonsense")

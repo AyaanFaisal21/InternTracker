@@ -21,7 +21,7 @@ import httpx
 
 from ..schema import RawDetection, Source
 from ..store import Store
-from .base import looks_like_swe_internship
+from .base import INTERN_RE, looks_like_swe_internship
 
 BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -36,11 +36,28 @@ ATS_PROBES = {
 }
 
 
+def _kw_match(k: str, title_lower: str) -> bool:
+    """Whole-word keyword match. "intern" must not match "International",
+    but should cover interns/internship(s), so the intern family routes
+    through the canonical INTERN_RE."""
+    if k in ("intern", "interns", "internship", "internships", "co-op", "coop"):
+        return bool(INTERN_RE.search(title_lower))
+    return bool(re.search(rf"\b{re.escape(k)}s?\b", title_lower))
+
+
 def slugify(company: str) -> list[str]:
+    """Likely board slugs, most-specific first. Companies register under
+    styled names (Anduril -> andurilindustries), so try common suffixes.
+    A suggestion probe is human-triggered; ~20 requests is acceptable."""
     base = re.sub(r"[^a-z0-9 ]", "", company.lower()).strip()
-    joined = base.replace(" ", "")
-    dashed = base.replace(" ", "-")
-    return list(dict.fromkeys([joined, dashed]))
+    words = base.split()
+    joined = "".join(words)
+    dashed = "-".join(words)
+    variants = [joined, dashed]
+    if len(words) > 1:  # also try the first word alone ("Anduril Industries" -> anduril)
+        variants.append(words[0])
+    variants += [joined + suf for suf in ("industries", "hq", "inc", "labs")]
+    return list(dict.fromkeys(v for v in variants if v))
 
 
 class SuggestionDetector:
@@ -119,7 +136,7 @@ class SuggestionDetector:
             if not title or not url:
                 continue
             if keywords:
-                if not any(k in title.lower() for k in keywords):
+                if not any(_kw_match(k, title.lower()) for k in keywords):
                     continue
             elif not looks_like_swe_internship(title):
                 continue
