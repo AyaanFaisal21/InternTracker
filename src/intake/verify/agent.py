@@ -33,6 +33,8 @@ careers page are not open.
 pay-to-apply schemes, brand-ambassador roles, and pages whose content does \
 not match the claimed company/title.
 - season: the recruiting season if stated (e.g. "Summer 2026"), else null.
+- date_posted: the posting date if the page states one, as YYYY-MM-DD, \
+else null. Never infer a date that is not on the page.
 - degree_levels: every degree level the posting accepts, from the page text. \
 "Currently pursuing a BS or MS" -> ["BS", "MS"]. "PhD students only" -> \
 ["PhD"]. If the page states no degree requirement, return all three.

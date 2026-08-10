@@ -118,6 +118,10 @@ class Pipeline:
                 report.errors.append(f"verify {p.id}: {e}")
                 continue  # stays GATED, retried next cycle
             p.verdict = verdict
+            if p.date_posted is None and verdict.date_posted:
+                from .dates import parse_iso
+
+                p.date_posted = parse_iso(verdict.date_posted)
             if verdict.approved:
                 p.status = Status.VERIFIED
                 report.verified += 1
