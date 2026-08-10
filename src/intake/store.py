@@ -71,6 +71,9 @@ class Store:
         if det.source not in existing.sources:
             existing.sources.append(det.source)
             changed = True
+        if existing.date_posted is None and det.date_posted is not None:
+            existing.date_posted = det.date_posted
+            changed = True
         for loc in det.locations:
             if loc and loc not in existing.locations:
                 existing.locations.append(loc)
