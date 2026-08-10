@@ -31,6 +31,17 @@ CREATE TABLE IF NOT EXISTS postings (
     reject_reason TEXT,
     verdict       TEXT             -- JSON, verifier output
 );
+
+CREATE TABLE IF NOT EXISTS suggestions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT NOT NULL,       -- 'url' | 'company'
+    value      TEXT NOT NULL,       -- the url or company name
+    company    TEXT,                -- optional display name for url kind
+    keywords   TEXT,                -- optional comma separated
+    status     TEXT NOT NULL DEFAULT 'new',  -- new | matched | no_match | error
+    result     TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -93,6 +104,36 @@ class Store:
 
     def update(self, p: Posting) -> None:
         self._write(p)
+
+    def add_suggestion(
+        self, kind: str, value: str, company: str | None = None,
+        keywords: str | None = None,
+    ) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO suggestions (kind, value, company, keywords) VALUES (?,?,?,?)",
+            (kind, value, company, keywords),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def pending_suggestions(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM suggestions WHERE status = 'new' ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def resolve_suggestion(self, sid: int, status: str, result: str) -> None:
+        self.conn.execute(
+            "UPDATE suggestions SET status = ?, result = ? WHERE id = ?",
+            (status, result[:500], sid),
+        )
+        self.conn.commit()
+
+    def recent_suggestions(self, limit: int = 25) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM suggestions ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def all_postings(self) -> list[Posting]:
         rows = self.conn.execute(
