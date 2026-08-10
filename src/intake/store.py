@@ -42,6 +42,13 @@ CREATE TABLE IF NOT EXISTS suggestions (
     result     TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS visits (
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    page TEXT NOT NULL,
+    ua   TEXT,
+    at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -128,6 +135,13 @@ class Store:
             (status, result[:500], sid),
         )
         self.conn.commit()
+
+    def record_visit(self, page: str, ua: str | None) -> None:
+        self.conn.execute("INSERT INTO visits (page, ua) VALUES (?, ?)", (page, ua))
+        self.conn.commit()
+
+    def visit_count(self) -> int:
+        return self.conn.execute("SELECT COUNT(*) FROM visits").fetchone()[0]
 
     def recent_suggestions(self, limit: int = 25) -> list[dict]:
         rows = self.conn.execute(
