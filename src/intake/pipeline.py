@@ -19,7 +19,7 @@ from typing import Callable
 import httpx
 
 from .config import Settings
-from .dates import parse_iso, parse_season
+from .dates import parse_iso
 from .detectors import (
     BROWSER_DETECTORS,
     CUSTOM_DETECTORS,
@@ -110,15 +110,15 @@ class Pipeline:
 
         # 3: rule gate + canonical URL resolution
         for p in self.store.by_status(Status.PENDING):
-            reason, canonical, degrees, quals = run_rules(p, self.http)
-            if reason:
-                p.status, p.reject_reason = Status.REJECTED, reason
+            gate = run_rules(p, self.http)
+            if gate.reject_reason:
+                p.status, p.reject_reason = Status.REJECTED, gate.reject_reason
                 report.rule_rejected += 1
             else:
-                p.canonical_url = canonical
-                p.degree_levels = degrees
-                p.qualifications = quals
-                p.season = parse_season(p.title)
+                p.canonical_url = gate.canonical_url
+                p.degree_levels = gate.degree_levels
+                p.qualifications = gate.qualifications
+                p.season = gate.season
                 p.status = Status.GATED
             self.store.update(p)
 

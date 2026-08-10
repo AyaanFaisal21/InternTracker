@@ -10,9 +10,11 @@ Each rule returns None on pass, or a short reject reason on fail.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 
 import httpx
 
+from ..dates import parse_season
 from ..degrees import classify, extract_qualifications, strip_tags, workday_detail_text
 from ..normalize import resolve_canonical, strip_tracking
 from ..schema import DegreeLevel, Posting, Source
@@ -43,18 +45,22 @@ def check_title(p: Posting) -> str | None:
     return None
 
 
-def run_rules(
-    p: Posting, client: httpx.Client
-) -> tuple[str | None, str | None, list[DegreeLevel], str | None]:
-    """Run rules, resolve the canonical URL, classify degrees, pull a
-    qualifications excerpt.
+@dataclass
+class GateResult:
+    reject_reason: str | None = None
+    canonical_url: str | None = None
+    degree_levels: list[DegreeLevel] = field(default_factory=list)
+    qualifications: str | None = None
+    season: str | None = None
 
-    Returns (reject_reason, canonical_url, degree_levels, qualifications).
-    On rejection the last three are empty.
-    """
+
+def run_rules(p: Posting, client: httpx.Client) -> GateResult:
+    """Run rules, resolve the canonical URL, classify degrees and season,
+    pull a qualifications excerpt. Season falls back to page text because
+    many titles omit the cycle the page states."""
     reason = check_title(p)
     if reason:
-        return reason, None, [], None
+        return GateResult(reject_reason=reason)
     reason, canonical, page_text = resolve_canonical(p.url, client)
     if reason and ("403" in reason or "429" in reason or "unreachable" in reason):
         # WAF block or transient network failure, not a dead posting (Tesla
@@ -62,8 +68,13 @@ def run_rules(
         # Keep the source URL; the verifier or a later pass judges.
         canonical, page_text, reason = strip_tracking(p.url), "", None
     if reason:
-        return reason, None, [], None
+        return GateResult(reject_reason=reason)
     if Source.WORKDAY in p.sources:
         page_text = workday_detail_text(canonical or p.url, client) or page_text
     text = strip_tags(page_text)
-    return None, canonical, classify(p.title, text), extract_qualifications(text)
+    return GateResult(
+        canonical_url=canonical,
+        degree_levels=classify(p.title, text),
+        qualifications=extract_qualifications(text),
+        season=parse_season(p.title) or parse_season(text[:4000]),
+    )

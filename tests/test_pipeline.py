@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from intake.config import Settings, Watchlist
 from intake.pipeline import Pipeline
+from intake.verify.rules import GateResult
 from intake.schema import RawDetection, Source, Status, Verdict
 from intake.store import Store
 
@@ -50,7 +51,7 @@ DET = RawDetection(
 )
 
 
-@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1", ["BS"], None))
+@patch("intake.pipeline.run_rules", return_value=GateResult(canonical_url="https://stripe.com/jobs/1", degree_levels=["BS"]))
 def test_approved_posting_is_published(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET], approved=True)
     report = pipeline.run_cycle()
@@ -59,7 +60,7 @@ def test_approved_posting_is_published(_rules, tmp_path):
     assert pipeline.store.get(DET.dedupe_key()).status == Status.PUBLISHED
 
 
-@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1", ["BS"], None))
+@patch("intake.pipeline.run_rules", return_value=GateResult(canonical_url="https://stripe.com/jobs/1", degree_levels=["BS"]))
 def test_rejected_posting_never_publishes(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET], approved=False)
     report = pipeline.run_cycle()
@@ -69,7 +70,7 @@ def test_rejected_posting_never_publishes(_rules, tmp_path):
     assert p.status == Status.REJECTED and p.verdict is not None
 
 
-@patch("intake.pipeline.run_rules", return_value=("url returned 404", None, [], None))
+@patch("intake.pipeline.run_rules", return_value=GateResult(reject_reason="url returned 404"))
 def test_rule_rejection_skips_agent(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET])
     report = pipeline.run_cycle()
@@ -77,7 +78,7 @@ def test_rule_rejection_skips_agent(_rules, tmp_path):
     assert pipeline.store.get(DET.dedupe_key()).reject_reason == "url returned 404"
 
 
-@patch("intake.pipeline.run_rules", return_value=(None, "https://stripe.com/jobs/1", ["BS"], None))
+@patch("intake.pipeline.run_rules", return_value=GateResult(canonical_url="https://stripe.com/jobs/1", degree_levels=["BS"]))
 def test_no_verify_parks_at_gated(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET])
     report = pipeline.run_cycle(verify=False)
