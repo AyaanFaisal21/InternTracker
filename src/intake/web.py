@@ -203,13 +203,15 @@ PAGE = """<!doctype html>
 <style>""" + BASE_CSS + """
   .layout { display:flex; gap:16px; max-width:1400px; margin:0 auto; padding:18px 20px 18px 8px; }
   .sidebar { width:34px; flex-shrink:0; display:flex; flex-direction:column;
-             overflow:hidden; transition:width .15s ease; position:relative; }
-  .sidebar:hover, .layout.pinned .sidebar { width:200px; }
+             overflow:hidden auto; transition:width .15s ease;
+             position:sticky; top:12px; align-self:flex-start;
+             max-height:calc(100vh - 24px); }
+  .sidebar:hover, .layout.pinned .sidebar, .layout.edge .sidebar { width:200px; }
   .sidebar .rail { position:absolute; top:6px; left:8px; color:#8b949e; font-size:15px; }
-  .sidebar:hover .rail, .layout.pinned .rail { display:none; }
+  .sidebar:hover .rail, .layout.pinned .rail, .layout.edge .rail { display:none; }
   .side-inner { width:200px; opacity:0; transition:opacity .15s ease; display:flex;
                 flex-direction:column; flex:1; }
-  .sidebar:hover .side-inner, .layout.pinned .side-inner { opacity:1; }
+  .sidebar:hover .side-inner, .layout.pinned .side-inner, .layout.edge .side-inner { opacity:1; }
   .main { flex:1; min-width:0; }
   .side-section { margin-bottom:14px; }
   .side-head { color:#8b949e; font-size:11.5px; font-weight:600; text-transform:uppercase;
@@ -340,6 +342,14 @@ function togglePin() {
   localStorage.setItem("sbpin", on ? "1" : "");
 }
 if (localStorage.getItem("sbpin") === "1") togglePin();
+
+// Sidebar must react even when the cursor sits in the far-left window gutter
+// outside the centered layout.
+document.addEventListener("mousemove", e => {
+  const lay = document.getElementById("layout");
+  if (e.clientX < 44) lay.classList.add("edge");
+  else if (e.clientX > 300) lay.classList.remove("edge");
+});
 
 function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
