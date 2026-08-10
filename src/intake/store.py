@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS postings (
     url           TEXT NOT NULL,
     canonical_url TEXT,
     degree_levels TEXT NOT NULL DEFAULT '[]',  -- JSON array
+    date_posted   TEXT,
     locations     TEXT NOT NULL,   -- JSON array
     sources       TEXT NOT NULL,   -- JSON array
     first_seen    TEXT NOT NULL,
@@ -45,6 +46,8 @@ class Store:
             self.conn.execute(
                 "ALTER TABLE postings ADD COLUMN degree_levels TEXT NOT NULL DEFAULT '[]'"
             )
+        if "date_posted" not in cols:
+            self.conn.execute("ALTER TABLE postings ADD COLUMN date_posted TEXT")
         self.conn.commit()
 
     def get(self, posting_id: str) -> Posting | None:
@@ -81,7 +84,7 @@ class Store:
 
     def all_postings(self) -> list[Posting]:
         rows = self.conn.execute(
-            "SELECT * FROM postings ORDER BY first_seen DESC"
+            "SELECT * FROM postings ORDER BY COALESCE(date_posted, first_seen) DESC"
         ).fetchall()
         return [self._to_posting(r) for r in rows]
 
@@ -95,11 +98,13 @@ class Store:
         self.conn.execute(
             """INSERT INTO postings
                (id, company, title, url, canonical_url, degree_levels,
-                locations, sources, first_seen, status, reject_reason, verdict)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                date_posted, locations, sources, first_seen, status,
+                reject_reason, verdict)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
                  canonical_url=excluded.canonical_url,
                  degree_levels=excluded.degree_levels,
+                 date_posted=excluded.date_posted,
                  locations=excluded.locations, sources=excluded.sources,
                  status=excluded.status, reject_reason=excluded.reject_reason,
                  verdict=excluded.verdict""",
@@ -110,6 +115,7 @@ class Store:
                 p.url,
                 p.canonical_url,
                 json.dumps(p.degree_levels),
+                p.date_posted.isoformat() if p.date_posted else None,
                 json.dumps(p.locations),
                 json.dumps([s.value for s in p.sources]),
                 p.first_seen.isoformat(),
@@ -131,6 +137,7 @@ class Store:
             url=row["url"],
             canonical_url=row["canonical_url"],
             degree_levels=json.loads(row["degree_levels"]),
+            date_posted=row["date_posted"],
             locations=json.loads(row["locations"]),
             sources=[Source(s) for s in json.loads(row["sources"])],
             first_seen=row["first_seen"],

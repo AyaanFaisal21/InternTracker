@@ -47,6 +47,7 @@ class RawDetection(BaseModel):
     title: str
     url: str
     locations: list[str] = Field(default_factory=list)
+    date_posted: datetime | None = None  # from the source payload when it carries one
     detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     payload: dict = Field(default_factory=dict)  # raw source data, kept for the verifier
 
@@ -67,6 +68,7 @@ class Verdict(BaseModel):
     is_open: bool                     # application appears open, not closed/filled
     is_legitimate: bool               # real employer posting, not spam/ambassador/unpaid-scheme
     season: str | None = None         # e.g. "Summer 2026"
+    date_posted: str | None = None    # ISO date from page text, LLM fallback when the scrape lacks one
     degree_levels: list[DegreeLevel] = Field(default_factory=list)
     # Degree levels the posting is open to, from the page text. A posting
     # requiring "current PhD students" is ["PhD"]. Unstated -> all three.
@@ -88,7 +90,8 @@ class Posting(BaseModel):
     # Heuristic (rule gate). verdict.degree_levels, when present, overrides.
     locations: list[str] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
-    first_seen: datetime
+    date_posted: datetime | None = None  # source-scrape date; verdict fallback fills it
+    first_seen: datetime                 # our detection clock; debugging tool, not display
     status: Status = Status.PENDING
     reject_reason: str | None = None
     verdict: Verdict | None = None
@@ -102,5 +105,6 @@ class Posting(BaseModel):
             url=d.url,
             locations=d.locations,
             sources=[d.source],
+            date_posted=d.date_posted,
             first_seen=d.detected_at,
         )
