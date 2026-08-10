@@ -137,11 +137,6 @@ PAGE = """<!doctype html>
   .side-section { margin-bottom:14px; }
   .side-head { color:#8b949e; font-size:11.5px; font-weight:600; text-transform:uppercase;
                letter-spacing:.4px; margin:0 0 4px 8px; }
-  .side-item { display:flex; justify-content:space-between; padding:3px 8px; border-radius:6px;
-               cursor:pointer; color:#e6edf3; font-size:13px; }
-  .side-item:hover { background:#161b22; }
-  .side-item.on { background:#1f6feb33; box-shadow:inset 2px 0 0 #4493f8; font-weight:600; }
-  .side-item .n { color:#8b949e; font-size:12px; }
   .side-select { width:100%; background:#161b22; color:#e6edf3; border:1px solid #30363d;
                  border-radius:6px; padding:4px 8px; font-size:13px; }
   .side-collapse { margin-top:auto; color:#8b949e; font-size:13px; cursor:pointer;
@@ -199,14 +194,18 @@ PAGE = """<!doctype html>
 """ + TOPBAR_LISTINGS + """
 <div class="layout" id="layout">
 <div class="sidebar">
-  <div class="side-section"><div class="side-head">Status</div><div id="side-status"></div></div>
-  <div class="side-section"><div class="side-head">Degree</div><div id="side-degree"></div></div>
-  <div class="side-section"><div class="side-head">Role</div><div id="side-role"></div></div>
-  <div class="side-section"><div class="side-head">Posted</div><div id="side-fresh"></div></div>
+  <div class="side-section"><div class="side-head">Status</div>
+    <select class="side-select" id="f-status" onchange="tab=this.value;render()"></select></div>
+  <div class="side-section"><div class="side-head">Degree</div>
+    <select class="side-select" id="f-degree" onchange="degree=this.value;render()"></select></div>
+  <div class="side-section"><div class="side-head">Role</div>
+    <select class="side-select" id="f-role" onchange="role=this.value;render()"></select></div>
+  <div class="side-section"><div class="side-head">Posted</div>
+    <select class="side-select" id="f-fresh" onchange="fresh=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Country</div>
-    <select class="side-select" id="country" onchange="country=this.value;render()"></select></div>
+    <select class="side-select" id="f-country" onchange="country=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Season</div>
-    <select class="side-select" id="season" onchange="season=this.value;render()"></select></div>
+    <select class="side-select" id="f-season" onchange="season=this.value;render()"></select></div>
   <div class="side-collapse" onclick="toggleSide(true)">&#10094; Collapse sidebar</div>
 </div>
 <div class="main">
@@ -292,14 +291,12 @@ function matches(p) {
   }
   return true;
 }
-function sideList(el, items, current, setter) {
-  document.getElementById(el).innerHTML = items.map(([label, count]) =>
-    `<div class="side-item ${label === current ? "on" : ""}" onclick="${setter}('${label}')">
-       <span>${label}</span><span class="n">${count ?? ""}</span></div>`).join("");
+function fillOpts(id, opts, cur) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = opts.map(o => `<option value="${esc(o[0])}">${esc(o[1])}</option>`).join("");
+  sel.value = cur;
+  return sel.value;
 }
-function setDegree(v) { degree = v; render(); }
-function setRole(v) { role = v; render(); }
-function setFresh(v) { fresh = v; render(); }
 function rowHtml(p) {
   const cls = p.status === "rejected" ? "closed" : (p.status === "pending" || p.status === "gated" ? "pend" : "open");
   const misc =
@@ -337,24 +334,22 @@ function render() {
   document.getElementById("rows").innerHTML =
     rows.map(rowHtml).join("") || `<div class="issue" style="color:#8b949e">no matches</div>`;
 
-  sideList("side-degree", DEGREES.map(d => [d, data.filter(p => {
-    const dd = degreesOf(p); return d === "any" || !dd.length || dd.includes(d);
-  }).length]), degree, "setDegree");
-  const roles = ["all"].concat([...new Set(data.map(p => p.role))].sort());
-  sideList("side-role", roles.map(r => [r, r === "all" ? data.length : data.filter(p => p.role === r).length]), role, "setRole");
-  sideList("side-fresh", FRESH.map(f => [f[0], null]), fresh, "setFresh");
-  sideList("side-status", [["open", openN], ["closed", data.length - openN]], tab,
-    "(t=>{tab=t;render();})");
-  fillSelect("country", [...new Set(data.flatMap(p => p.countries || []))].sort(), () => country, v => country = v);
-  fillSelect("season", [...new Set(data.map(seasonOf).filter(Boolean))].sort(), () => season, v => season = v);
+  fillOpts("f-status", [["open", "open (" + openN + ")"],
+    ["closed", "closed (" + (data.length - openN) + ")"]], tab);
+  fillOpts("f-degree", DEGREES.map(d => [d, d === "any" ? "any" : d + " (" + data.filter(p => {
+    const dd = degreesOf(p); return !dd.length || dd.includes(d);
+  }).length + ")"]), degree);
+  const roles = [...new Set(data.map(p => p.role))].sort();
+  role = fillOpts("f-role", [["all", "all (" + data.length + ")"]].concat(
+    roles.map(r => [r, r + " (" + data.filter(p => p.role === r).length + ")"])), role) || "all";
+  fillOpts("f-fresh", FRESH.map(f => [f[0], f[0]]), fresh);
+  const cs = [...new Set(data.flatMap(p => p.countries || []))].sort();
+  country = fillOpts("f-country", [["all", "all"]].concat(cs.map(c => [c, c])),
+    cs.includes(country) || country === "all" ? country : "all") || "all";
+  const ss = [...new Set(data.map(seasonOf).filter(Boolean))].sort();
+  season = fillOpts("f-season", [["all", "all"]].concat(ss.map(x => [x, x])),
+    ss.includes(season) || season === "all" ? season : "all") || "all";
   spotlight();
-}
-function fillSelect(id, values, get, set) {
-  const sel = document.getElementById(id);
-  const keep = sel.value || get();
-  sel.innerHTML = `<option value="all">all</option>` + values.map(v => `<option>${esc(v)}</option>`).join("");
-  sel.value = values.includes(keep) || keep === "all" ? keep : "all";
-  set(sel.value);
 }
 function spotlight() {
   const hits = data.filter(p => OPEN.includes(p.status)
