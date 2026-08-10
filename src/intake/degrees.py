@@ -55,3 +55,23 @@ def workday_detail_text(url: str, client: httpx.Client) -> str:
     except (httpx.HTTPError, ValueError):
         return ""
     return strip_tags(desc)
+
+
+QUAL_HEADER_RE = re.compile(
+    r"(minimum qualifications|basic qualifications|preferred qualifications"
+    r"|required qualifications|qualifications|requirements|what you.ll need"
+    r"|what you bring|who you are)[:\s]*",
+    re.IGNORECASE,
+)
+
+
+def extract_qualifications(page_text: str, limit: int = 900) -> str | None:
+    """First qualifications-like section of the page text, trimmed. Heuristic
+    first pass; the verifier can refine later."""
+    m = QUAL_HEADER_RE.search(page_text)
+    if not m:
+        return None
+    chunk = page_text[m.start(): m.start() + limit]
+    chunk = re.sub(r"[ \t]+", " ", chunk)
+    chunk = re.sub(r"\n{3,}", "\n\n", chunk).strip()
+    return chunk or None

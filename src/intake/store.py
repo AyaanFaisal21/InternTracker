@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS postings (
     date_posted   TEXT,
     date_posted_text TEXT,
     season        TEXT,
+    qualifications TEXT,
     locations     TEXT NOT NULL,   -- JSON array
     sources       TEXT NOT NULL,   -- JSON array
     first_seen    TEXT NOT NULL,
@@ -54,6 +55,8 @@ class Store:
             self.conn.execute("ALTER TABLE postings ADD COLUMN date_posted_text TEXT")
         if "season" not in cols:
             self.conn.execute("ALTER TABLE postings ADD COLUMN season TEXT")
+        if "qualifications" not in cols:
+            self.conn.execute("ALTER TABLE postings ADD COLUMN qualifications TEXT")
         self.conn.commit()
 
     def get(self, posting_id: str) -> Posting | None:
@@ -107,15 +110,16 @@ class Store:
         self.conn.execute(
             """INSERT INTO postings
                (id, company, title, url, canonical_url, degree_levels,
-                date_posted, date_posted_text, season, locations, sources,
-                first_seen, status, reject_reason, verdict)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                date_posted, date_posted_text, season, qualifications,
+                locations, sources, first_seen, status, reject_reason, verdict)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
                  canonical_url=excluded.canonical_url,
                  degree_levels=excluded.degree_levels,
                  date_posted=excluded.date_posted,
                  date_posted_text=excluded.date_posted_text,
                  season=excluded.season,
+                 qualifications=excluded.qualifications,
                  locations=excluded.locations, sources=excluded.sources,
                  status=excluded.status, reject_reason=excluded.reject_reason,
                  verdict=excluded.verdict""",
@@ -129,6 +133,7 @@ class Store:
                 p.date_posted.isoformat() if p.date_posted else None,
                 p.date_posted_text,
                 p.season,
+                p.qualifications,
                 json.dumps(p.locations),
                 json.dumps([s.value for s in p.sources]),
                 p.first_seen.isoformat(),
@@ -153,6 +158,7 @@ class Store:
             date_posted=row["date_posted"],
             date_posted_text=row["date_posted_text"],
             season=row["season"],
+            qualifications=row["qualifications"],
             locations=json.loads(row["locations"]),
             sources=[Source(s) for s in json.loads(row["sources"])],
             first_seen=row["first_seen"],

@@ -21,7 +21,7 @@ def test_run_rules_full_pass(tmp_path):
         title="Software Engineer Intern", url="https://acme.com/jobs/1",
     )
     client = fixture_client({"acme.com": "<p>Pursuing a Bachelor's degree</p>"})
-    reason, canonical, degrees = run_rules(p, client)
+    reason, canonical, degrees, quals = run_rules(p, client)
     assert reason is None
     assert canonical == "https://acme.com/jobs/1"
     assert degrees == ["BS"]
@@ -37,7 +37,7 @@ def test_run_rules_workday_uses_cxs_detail(tmp_path):
         "/en-US/Site/job/": "<html>js shell</html>",
         "/wday/cxs/nvidia/": {"jobPostingInfo": {"jobDescription": "PhD required"}},
     })
-    reason, canonical, degrees = run_rules(p, client)
+    reason, canonical, degrees, quals = run_rules(p, client)
     assert reason is None and degrees == ["PhD"]
 
 
@@ -46,5 +46,5 @@ def test_run_rules_rejects_bad_title(tmp_path):
         tmp_path, source=Source.GREENHOUSE, company="Acme",
         title="Unpaid Marketing Intern", url="https://acme.com/jobs/2",
     )
-    reason, canonical, degrees = run_rules(p, fixture_client({}))
+    reason, canonical, degrees, quals = run_rules(p, fixture_client({}))
     assert reason is not None and canonical is None and degrees == []

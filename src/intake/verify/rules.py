@@ -13,7 +13,7 @@ import re
 
 import httpx
 
-from ..degrees import classify, strip_tags, workday_detail_text
+from ..degrees import classify, extract_qualifications, strip_tags, workday_detail_text
 from ..normalize import resolve_canonical, strip_tracking
 from ..schema import DegreeLevel, Posting, Source
 
@@ -45,23 +45,24 @@ def check_title(p: Posting) -> str | None:
 
 def run_rules(
     p: Posting, client: httpx.Client
-) -> tuple[str | None, str | None, list[DegreeLevel]]:
-    """Run rules, resolve the canonical URL, classify degree levels.
+) -> tuple[str | None, str | None, list[DegreeLevel], str | None]:
+    """Run rules, resolve the canonical URL, classify degrees, pull a
+    qualifications excerpt.
 
-    Returns (reject_reason, canonical_url, degree_levels). On rejection the
-    last two are empty.
+    Returns (reject_reason, canonical_url, degree_levels, qualifications).
+    On rejection the last three are empty.
     """
     reason = check_title(p)
     if reason:
-        return reason, None, []
+        return reason, None, [], None
     reason, canonical, page_text = resolve_canonical(p.url, client)
     if reason and ("403" in reason or "429" in reason):
         # WAF block, not a dead posting (Tesla et al. reject bot clients).
         # Keep the source URL; the verifier or a browser pass judges later.
         canonical, page_text, reason = strip_tracking(p.url), "", None
     if reason:
-        return reason, None, []
+        return reason, None, [], None
     if Source.WORKDAY in p.sources:
         page_text = workday_detail_text(canonical or p.url, client) or page_text
-    degrees = classify(p.title, strip_tags(page_text))
-    return None, canonical, degrees
+    text = strip_tags(page_text)
+    return None, canonical, classify(p.title, text), extract_qualifications(text)

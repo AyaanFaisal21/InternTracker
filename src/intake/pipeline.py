@@ -108,13 +108,14 @@ class Pipeline:
 
         # 3: rule gate + canonical URL resolution
         for p in self.store.by_status(Status.PENDING):
-            reason, canonical, degrees = run_rules(p, self.http)
+            reason, canonical, degrees, quals = run_rules(p, self.http)
             if reason:
                 p.status, p.reject_reason = Status.REJECTED, reason
                 report.rule_rejected += 1
             else:
                 p.canonical_url = canonical
                 p.degree_levels = degrees
+                p.qualifications = quals
                 p.season = parse_season(p.title)
                 p.status = Status.GATED
             self.store.update(p)

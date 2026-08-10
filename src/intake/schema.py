@@ -94,6 +94,7 @@ class Posting(BaseModel):
     date_posted: datetime | None = None  # source-scrape date; verdict fallback fills it
     date_posted_text: str | None = None  # raw source phrasing when no parseable date ("Posted 30+ Days Ago")
     season: str | None = None            # heuristic from title; verdict.season overrides
+    qualifications: str | None = None    # excerpt from the posting page
     first_seen: datetime                 # our detection clock; debugging tool, not display
     status: Status = Status.PENDING
     reject_reason: str | None = None
