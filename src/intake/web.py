@@ -46,7 +46,7 @@ PAGE = """<!doctype html>
 </div>
 <table>
   <thead><tr><th>company</th><th>title</th><th>status</th><th>sources</th>
-  <th>degrees</th><th>locations</th><th>first seen</th><th>notes</th></tr></thead>
+  <th>degrees</th><th>locations</th><th>posted</th><th>notes</th></tr></thead>
   <tbody id="rows"></tbody>
 </table>
 <script>
@@ -76,7 +76,7 @@ function render() {
       <td>${p.sources.join(", ")}</td>
       <td>${degreesOf(p).join("/") || "any"}</td>
       <td>${p.locations.slice(0,3).join("; ")}</td>
-      <td>${(p.first_seen || "").slice(0, 16).replace("T", " ")}</td>
+      <td>${p.date_posted ? p.date_posted.slice(0, 10) : "?"}</td>
       <td class="reasons">${p.reject_reason || (p.verdict ? p.verdict.reasons.join("; ") : "")}</td>
     </tr>`).join("");
   document.getElementById("filters").innerHTML =
