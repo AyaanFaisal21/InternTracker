@@ -54,7 +54,7 @@ TOPBAR_HOME = """<div class="topbar">
 TOPBAR_LISTINGS = """<div class="topbar">
   <span class="burger">&#9776;</span>
   <span class="brand"><a class="brand" href="/"><span class="ru">RU</span>employed</a>
-    <span class="crumb"> &middot; <a href="/listings">Listings</a></span></span>
+    <span class="crumb"> &middot; <a href="/listings" id="crumbname">Listings</a></span></span>
   <input class="topsearch" placeholder="Type / to search" disabled>
 </div>"""
 
@@ -88,11 +88,21 @@ LANDING = """<!doctype html>
   .pin .desc { color:#8b949e; font-size:13px; margin:8px 0 14px; }
   .pin .foot { color:#8b949e; font-size:12.5px; display:flex; gap:14px; }
   .gdot { color:#3fb950; }
+  .repolist { border:1px solid #30363d; border-radius:8px; margin-bottom:40px; }
+  .repo { border-top:1px solid #21262d; padding:14px 18px; }
+  .repo:first-child { border-top:none; }
+  .repo.dim { opacity:.55; }
+  .rname { font-weight:600; font-size:15px; }
+  .rname.soon { color:#8b949e; }
+  .pub { border:1px solid #30363d; color:#8b949e; border-radius:2em; padding:0 8px;
+         font-size:12px; margin-left:8px; }
+  .rdesc { color:#8b949e; font-size:13px; margin:4px 0 8px; }
+  .rfoot { color:#8b949e; font-size:12.5px; }
 </style>
 """ + TOPBAR_HOME + """
 <div class="tabs">
   <span class="tab on">Overview</span>
-  <span class="tab">Repositories <span class="n">1</span></span>
+  <span class="tab">Repositories <span class="n">7</span></span>
 </div>
 <div class="wrap">
   <div class="profile">
@@ -101,18 +111,62 @@ LANDING = """<!doctype html>
       <p class="pname"><span style="color:#f85149">RU</span>employed</p>
       <span class="verified">Verified &middot; scarlet knights build here</span>
       <div class="pmeta">&#128101; Rutgers CS students &nbsp; &#128205; New Brunswick, NJ
-        &nbsp; &#128279; <a href="/listings">/listings</a></div>
+        &nbsp; &#128279; <a href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">/listings</a></div>
     </div>
     <button class="notif" onclick="this.textContent='coming soon'">Notification settings</button>
   </div>
   <h3 class="sec">Pinned</h3>
   <div class="pins">
     <div class="pin">
-      <div><span>&#128214;</span> <a class="name" href="/listings">listings</a><span class="pub">Public</span></div>
+      <div><span>&#128214;</span> <a class="name" href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">All Listings</a><span class="pub">Public</span></div>
       <div class="desc">What you're here for</div>
       <div class="foot"><span><span class="gdot">&#9679;</span> Internships</span>
         <span>&#9733; <span id="livecount">&hellip;</span> open</span>
         <span>updated continuously</span></div>
+    </div>
+    <div class="pin">
+      <div><span>&#128214;</span> <a class="name" href="/listings?repo=Summer+%2727&amp;degree=BS&amp;season=Summer+2027">Summer '27</a><span class="pub">Public</span></div>
+      <div class="desc">Bachelors, Summer 2027</div>
+      <div class="foot"><span><span class="gdot">&#9679;</span> internships</span>
+        <span>&#9733; <span id="livecount27">&hellip;</span> open</span></div>
+    </div>
+  </div>
+  <h3 class="sec">Repositories</h3>
+  <div class="repolist">
+    <div class="repo">
+      <div><a class="rname" href="/listings?repo=Summer+%2727&amp;degree=BS&amp;season=Summer+2027">Summer '27</a><span class="pub">Public</span></div>
+      <div class="rdesc">Undergraduate internships, Summer 2027</div>
+      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
+    </div>
+    <div class="repo">
+      <div><a class="rname" href="/listings?repo=Spring+%2727&amp;degree=BS&amp;season=Spring+2027">Spring '27</a><span class="pub">Public</span></div>
+      <div class="rdesc">Undergraduate internships, Spring 2027</div>
+      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
+    </div>
+    <div class="repo">
+      <div><a class="rname" href="/listings?repo=Winter+%2726&amp;degree=BS&amp;season=Winter+2026">Winter '26</a><span class="pub">Public</span></div>
+      <div class="rdesc">Undergraduate internships, Winter 2026</div>
+      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
+    </div>
+    <div class="repo">
+      <div><a class="rname" href="/listings?repo=Bachelors&amp;degree=BS">Bachelors</a><span class="pub">Public</span></div>
+      <div class="rdesc">Everything open to undergraduates</div>
+      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
+    </div>
+    <div class="repo">
+      <div><a class="rname" href="/listings?repo=Masters%2FPhD&amp;degree=grad">Masters/PhD</a><span class="pub">Public</span></div>
+      <div class="rdesc">Graduate-level internships</div>
+      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
+    </div>
+    <div class="repo dim">
+      <div><span class="rname soon">Summer '26</span><span class="pub">Closed</span></div>
+      <div class="rdesc">Undergraduate internships, Summer 2026 (season over)</div>
+      <div class="rfoot"><span class="gdot" style="color:#f85149">&#9679;</span> internships</div>
+    </div>
+    <div class="repo dim">
+      <div><span class="rname soon">New Grad</span><span class="pub">Coming soon</span></div>
+      <div class="rdesc">Full-time new grad roles</div>
+      <div class="rfoot"><span class="gdot">&#9679;</span> newgrad</div>
     </div>
   </div>
 </div>
@@ -120,8 +174,13 @@ LANDING = """<!doctype html>
 fetch("/api/visit", {method: "POST", headers: {"Content-Type": "application/json"},
   body: JSON.stringify({page: "landing"})});
 fetch("/api/postings").then(r => r.json()).then(d => {
-  const open = d.filter(p => ["pending","gated","verified","published"].includes(p.status)).length;
-  document.getElementById("livecount").textContent = open;
+  const isOpen = p => ["pending","gated","verified","published"].includes(p.status);
+  document.getElementById("livecount").textContent = d.filter(isOpen).length;
+  const deg = p => (p.verdict && (p.verdict.degree_levels || []).length
+    ? p.verdict.degree_levels : (p.degree_levels || []));
+  const sea = p => (p.verdict && p.verdict.season) || p.season || null;
+  document.getElementById("livecount27").textContent = d.filter(p => isOpen(p)
+    && (!deg(p).length || deg(p).includes("BS")) && sea(p) === "Summer 2027").length;
 });
 </script>
 """
@@ -130,9 +189,15 @@ PAGE = """<!doctype html>
 <meta charset="utf-8">
 <title>RUemployed &middot; Listings</title>
 <style>""" + BASE_CSS + """
-  .layout { display:flex; gap:20px; max-width:1400px; margin:0 auto; padding:18px 20px 18px 12px; }
-  .sidebar { width:200px; flex-shrink:0; display:flex; flex-direction:column; }
-  .layout.collapsed .sidebar { display:none; }
+  .layout { display:flex; gap:16px; max-width:1400px; margin:0 auto; padding:18px 20px 18px 8px; }
+  .sidebar { width:34px; flex-shrink:0; display:flex; flex-direction:column;
+             overflow:hidden; transition:width .15s ease; position:relative; }
+  .sidebar:hover, .layout.pinned .sidebar { width:200px; }
+  .sidebar .rail { position:absolute; top:6px; left:8px; color:#8b949e; font-size:15px; }
+  .sidebar:hover .rail, .layout.pinned .rail { display:none; }
+  .side-inner { width:200px; opacity:0; transition:opacity .15s ease; display:flex;
+                flex-direction:column; flex:1; }
+  .sidebar:hover .side-inner, .layout.pinned .side-inner { opacity:1; }
   .main { flex:1; min-width:0; }
   .side-section { margin-bottom:14px; }
   .side-head { color:#8b949e; font-size:11.5px; font-weight:600; text-transform:uppercase;
@@ -142,10 +207,6 @@ PAGE = """<!doctype html>
   .side-collapse { margin-top:auto; color:#8b949e; font-size:13px; cursor:pointer;
                    padding:6px 8px; border-radius:6px; }
   .side-collapse:hover { background:#161b22; color:#e6edf3; }
-  .expand-btn { position:fixed; bottom:16px; left:12px; background:#161b22; color:#8b949e;
-                border:1px solid #30363d; border-radius:6px; padding:4px 10px; cursor:pointer;
-                display:none; font-size:14px; }
-  .layout.collapsed ~ .expand-btn, body:has(.layout.collapsed) .expand-btn { display:block; }
   .banner { border:1px solid #30363d; border-radius:8px; padding:12px 16px; margin-bottom:12px;
             background:#161b22; }
   .banner h3 { margin:0 0 6px; font-size:15px; }
@@ -194,6 +255,8 @@ PAGE = """<!doctype html>
 """ + TOPBAR_LISTINGS + """
 <div class="layout" id="layout">
 <div class="sidebar">
+  <div class="rail">&#9881;</div>
+  <div class="side-inner">
   <div class="side-section"><div class="side-head">Status</div>
     <select class="side-select" id="f-status" onchange="tab=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Degree</div>
@@ -206,7 +269,8 @@ PAGE = """<!doctype html>
     <select class="side-select" id="f-country" onchange="country=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Season</div>
     <select class="side-select" id="f-season" onchange="season=this.value;render()"></select></div>
-  <div class="side-collapse" onclick="toggleSide(true)">&#10094; Collapse sidebar</div>
+  <div class="side-collapse" id="pinbtn" onclick="togglePin()">&#128204; Pin sidebar open</div>
+  </div>
 </div>
 <div class="main">
   <div class="banner">
@@ -233,24 +297,37 @@ PAGE = """<!doctype html>
   <div class="rows" id="rows"></div>
 </div>
 </div>
-<div class="expand-btn" onclick="toggleSide(false)">&#10095;</div>
 <script>
 const OPEN = ["pending", "gated", "verified", "published"];
-const DEGREES = ["any", "BS", "MS", "PhD"];
+const DEGREES = [["any", "any"], ["BS", "BS"], ["MS", "MS"], ["PhD", "PhD"], ["grad", "MS/PhD"]];
 const FRESH = [["all", Infinity], ["2h", 2], ["8h", 8], ["24h", 24], ["2d", 48], ["3d", 72], ["1w", 168]];
 const PRESTIGE = ["jane street", "openai", "anthropic", "google", "apple", "nvidia", "stripe",
   "citadel", "hudson river trading", "two sigma", "palantir", "databricks", "microsoft", "meta"];
 let tab = "open", degree = "BS", role = "all", fresh = "all",
     country = "United States", season = "all", data = [];
 
-fetch("/api/visit", {method: "POST", headers: {"Content-Type": "application/json"},
-  body: JSON.stringify({page: "listings"})});
-
-function toggleSide(collapse) {
-  document.getElementById("layout").classList.toggle("collapsed", collapse);
-  localStorage.setItem("sbc", collapse ? "1" : "");
+// Repo presets arrive as query params; they override the defaults above.
+const params = new URLSearchParams(location.search);
+if (params.get("status")) tab = params.get("status");
+if (params.get("degree")) degree = params.get("degree");
+if (params.get("role")) role = params.get("role");
+if (params.get("fresh")) fresh = params.get("fresh");
+if (params.get("country")) country = params.get("country");
+if (params.get("season")) season = params.get("season");
+if (params.get("repo")) {
+  document.getElementById("crumbname").textContent = params.get("repo");
 }
-if (localStorage.getItem("sbc") === "1") toggleSide(true);
+
+fetch("/api/visit", {method: "POST", headers: {"Content-Type": "application/json"},
+  body: JSON.stringify({page: "listings:" + (params.get("repo") || "all")})});
+
+function togglePin() {
+  const on = document.getElementById("layout").classList.toggle("pinned");
+  document.getElementById("pinbtn").innerHTML = on
+    ? "&#128204; Unpin sidebar" : "&#128204; Pin sidebar open";
+  localStorage.setItem("sbpin", on ? "1" : "");
+}
+if (localStorage.getItem("sbpin") === "1") togglePin();
 
 function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -276,7 +353,9 @@ function postedLabel(p) {
 function matches(p) {
   if (tab === "open" ? !OPEN.includes(p.status) : p.status !== "rejected") return false;
   const d = degreesOf(p);
-  if (degree !== "any" && d.length && !d.includes(degree)) return false;
+  if (degree === "grad") {
+    if (d.length && !d.includes("MS") && !d.includes("PhD")) return false;
+  } else if (degree !== "any" && d.length && !d.includes(degree)) return false;
   if (role !== "all" && p.role !== role) return false;
   if (fresh !== "all") {
     const h = hoursAgo(p);
@@ -336,8 +415,10 @@ function render() {
 
   fillOpts("f-status", [["open", "open (" + openN + ")"],
     ["closed", "closed (" + (data.length - openN) + ")"]], tab);
-  fillOpts("f-degree", DEGREES.map(d => [d, d === "any" ? "any" : d + " (" + data.filter(p => {
-    const dd = degreesOf(p); return !dd.length || dd.includes(d);
+  fillOpts("f-degree", DEGREES.map(([v, label]) => [v, v === "any" ? "any" : label + " (" + data.filter(p => {
+    const dd = degreesOf(p);
+    if (v === "grad") return !dd.length || dd.includes("MS") || dd.includes("PhD");
+    return !dd.length || dd.includes(v);
   }).length + ")"]), degree);
   const roles = [...new Set(data.map(p => p.role))].sort();
   role = fillOpts("f-role", [["all", "all (" + data.length + ")"]].concat(
@@ -393,7 +474,7 @@ def make_handler(db_path: Path):
         def do_GET(self):
             if self.path == "/":
                 self._send(200, LANDING.encode(), "text/html; charset=utf-8")
-            elif self.path == "/listings":
+            elif self.path.split("?")[0] == "/listings":
                 self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             elif self.path.startswith("/api/postings"):
                 store = Store(db_path)  # per-request connection: thread-safe
