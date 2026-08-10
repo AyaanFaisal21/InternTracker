@@ -213,16 +213,16 @@ const grad = p => !deg(p).length || deg(p).includes("MS") || deg(p).includes("Ph
 const REPOS = [
   {name: "Summer '27", desc: "Undergraduate internships, Summer 2027", lang: "internships",
    href: "/listings?repo=Summer+%2727&degree=BS&season=Summer+2027",
-   pred: p => bs(p) && sea(p) === "Summer 2027"},
+   pred: p => bs(p) && (!sea(p) || sea(p) === "Summer 2027")},
   {name: "Spring '27", desc: "Undergraduate internships, Spring 2027", lang: "internships",
    href: "/listings?repo=Spring+%2727&degree=BS&season=Spring+2027",
-   pred: p => bs(p) && sea(p) === "Spring 2027"},
+   pred: p => bs(p) && (!sea(p) || sea(p) === "Spring 2027")},
   {name: "Fall '26", desc: "Undergraduate internships, Fall 2026", lang: "internships",
    href: "/listings?repo=Fall+%2726&degree=BS&season=Fall+2026",
-   pred: p => bs(p) && sea(p) === "Fall 2026"},
+   pred: p => bs(p) && (!sea(p) || sea(p) === "Fall 2026")},
   {name: "Winter '27", desc: "Undergraduate internships, Winter 2027", lang: "internships",
    href: "/listings?repo=Winter+%2727&degree=BS&season=Winter+2027",
-   pred: p => bs(p) && sea(p) === "Winter 2027"},
+   pred: p => bs(p) && (!sea(p) || sea(p) === "Winter 2027")},
   {name: "Bachelors", desc: "Everything open to undergraduates", lang: "internships",
    href: "/listings?repo=Bachelors&degree=BS",
    pred: p => bs(p)},
@@ -292,7 +292,7 @@ fetch("/api/postings").then(r => r.json()).then(d => {
     if (fk) fk.textContent = new Set(rows.map(p => p.company)).size;
   };
   set("all", open);
-  set("cycle27", open.filter(p => bs(p) && (sea(p) || "").includes("2027")));
+  set("cycle27", open.filter(p => bs(p) && (!sea(p) || sea(p).includes("2027"))));
   renderRepos();
   const byCo = {};
   open.forEach(p => byCo[p.company] = (byCo[p.company] || 0) + 1);
@@ -500,10 +500,15 @@ function matches(p) {
   }
   if (country !== "all" && !(p.countries || []).includes(country)) return false;
   if (season !== "all") {
-    const sv = seasonOf(p) || "";
-    if (season.startsWith("cycle:")) {
-      if (!sv.includes(season.slice(6))) return false;
-    } else if (sv !== season) return false;
+    const sv = seasonOf(p);
+    // Unknown season passes every season filter: most postings never state
+    // a cycle, and hiding them empties the presets. is_open verification
+    // is what retires dead-season postings, not this tag.
+    if (sv) {
+      if (season.startsWith("cycle:")) {
+        if (!sv.includes(season.slice(6))) return false;
+      } else if (sv !== season) return false;
+    }
   }
   const q = document.getElementById("q").value.trim().toLowerCase();
   if (q) {
