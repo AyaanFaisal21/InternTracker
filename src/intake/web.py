@@ -30,18 +30,18 @@ from .store import Store
 BASE_CSS = """
   * { box-sizing: border-box; }
   body { font: 14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-         margin: 0; background:#0d1117; color:#e6edf3; }
+         margin: 0; background:#161616; color:#e6edf3; }
   a { color:#4493f8; text-decoration:none; } a:hover { text-decoration:underline; }
-  .topbar { background:#010409; border-bottom:1px solid #21262d; padding:10px 20px;
+  .topbar { background:#2c090d; border-bottom:1px solid #4a1218; padding:10px 20px;
             display:flex; align-items:center; gap:14px; }
-  .burger { color:#8b949e; border:1px solid #30363d; border-radius:6px; padding:2px 8px;
+  .burger { color:#c9a0a4; border:1px solid #5a1a20; border-radius:6px; padding:2px 8px;
             font-size:15px; }
   .brand { font-size:15.5px; font-weight:600; color:#e6edf3; }
   .brand:hover { text-decoration:none; }
   .brand .ru { color:#f85149; }
   .crumb { color:#8b949e; font-weight:400; }
   .crumb a { color:#e6edf3; font-weight:600; }
-  .topsearch { margin-left:auto; background:#0d1117; border:1px solid #30363d; color:#8b949e;
+  .topsearch { margin-left:auto; background:#1d0507; border:1px solid #363636; color:#8b949e;
                border-radius:6px; padding:4px 12px; font-size:13px; width:240px; }
 """
 
@@ -63,39 +63,39 @@ LANDING = """<!doctype html>
 <title>RUemployed</title>
 <style>""" + BASE_CSS + """
   .wrap { max-width:1010px; margin:0 auto; padding:0 20px; }
-  .tabs { border-bottom:1px solid #21262d; display:flex; gap:8px; padding:0 20px; }
+  .tabs { border-bottom:1px solid #2a2a2a; display:flex; gap:8px; padding:0 20px; }
   .tabs .tab { padding:10px 12px; color:#e6edf3; font-size:14px; border-bottom:2px solid transparent; }
   .tabs .tab.on { border-bottom-color:#f78166; font-weight:600; }
-  .tabs .n { background:#30363d; border-radius:2em; padding:0 8px; font-size:12px; color:#c9d1d9; }
+  .tabs .n { background:#363636; border-radius:2em; padding:0 8px; font-size:12px; color:#c9d1d9; }
   .profile { display:flex; gap:22px; align-items:flex-start; margin:34px 0 26px; }
-  .avatar { width:76px; height:76px; border-radius:12px; background:#161b22; border:1px solid #30363d;
+  .avatar { width:76px; height:76px; border-radius:12px; background:#1e1e1e; border:1px solid #363636;
             display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:700; }
   .avatar span { color:#f85149; }
   .pname { font-size:24px; font-weight:600; margin:0; }
   .verified { border:1px solid #3fb95055; color:#7ee787; border-radius:2em; padding:0 10px;
               font-size:12px; display:inline-block; margin-top:4px; }
   .pmeta { color:#8b949e; font-size:13.5px; margin-top:8px; }
-  .notif { margin-left:auto; background:#21262d; color:#e6edf3; border:1px solid #30363d;
+  .notif { margin-left:auto; background:#2a2a2a; color:#e6edf3; border:1px solid #363636;
            border-radius:6px; padding:5px 16px; font-size:13px; font-weight:600; cursor:pointer; }
-  .notif:hover { background:#30363d; }
+  .notif:hover { background:#363636; }
   h3.sec { font-size:16px; font-weight:400; color:#e6edf3; margin:8px 0 12px; }
   .pins { display:flex; gap:16px; }
   .pin.dim { opacity:.55; }
-  .pin { width:32%; border:1px solid #30363d; border-radius:8px; background:#0d1117;
+  .pin { width:32%; border:1px solid #363636; border-radius:8px; background:#161616;
          padding:16px 18px; }
   .pin .name { font-weight:600; }
-  .pin .pub { border:1px solid #30363d; color:#8b949e; border-radius:2em; padding:0 8px;
+  .pin .pub { border:1px solid #363636; color:#8b949e; border-radius:2em; padding:0 8px;
               font-size:12px; margin-left:6px; }
   .pin .desc { color:#8b949e; font-size:13px; margin:8px 0 14px; }
   .pin .foot { color:#8b949e; font-size:12.5px; display:flex; gap:14px; }
   .gdot { color:#3fb950; }
-  .repolist { border:1px solid #30363d; border-radius:8px; margin-bottom:40px; }
-  .repo { border-top:1px solid #21262d; padding:14px 18px; }
+  .repolist { border:1px solid #363636; border-radius:8px; margin-bottom:40px; }
+  .repo { border-top:1px solid #2a2a2a; padding:14px 18px; }
   .repo:first-child { border-top:none; }
   .repo.dim { opacity:.55; }
   .rname { font-weight:600; font-size:15px; }
   .rname.soon { color:#8b949e; }
-  .pub { border:1px solid #30363d; color:#8b949e; border-radius:2em; padding:0 8px;
+  .pub { border:1px solid #363636; color:#8b949e; border-radius:2em; padding:0 8px;
          font-size:12px; margin-left:8px; }
   .rdesc { color:#8b949e; font-size:13px; margin:4px 0 8px; }
   .rfoot { color:#8b949e; font-size:12.5px; }
@@ -216,33 +216,33 @@ PAGE = """<!doctype html>
   .side-section { margin-bottom:14px; }
   .side-head { color:#8b949e; font-size:11.5px; font-weight:600; text-transform:uppercase;
                letter-spacing:.4px; margin:0 0 4px 8px; }
-  .side-select { width:100%; background:#161b22; color:#e6edf3; border:1px solid #30363d;
+  .side-select { width:100%; background:#1e1e1e; color:#e6edf3; border:1px solid #363636;
                  border-radius:6px; padding:4px 8px; font-size:13px; }
   .side-collapse { margin-top:auto; color:#8b949e; font-size:13px; cursor:pointer;
                    padding:6px 8px; border-radius:6px; }
-  .side-collapse:hover { background:#161b22; color:#e6edf3; }
-  .banner { border:1px solid #30363d; border-radius:8px; padding:12px 16px; margin-bottom:12px;
-            background:#161b22; }
+  .side-collapse:hover { background:#1e1e1e; color:#e6edf3; }
+  .banner { border:1px solid #363636; border-radius:8px; padding:12px 16px; margin-bottom:12px;
+            background:#1e1e1e; }
   .banner h3 { margin:0 0 6px; font-size:15px; }
   .banner .muted { color:#8b949e; font-size:13px; }
-  .banner input { background:#0d1117; color:#e6edf3; border:1px solid #30363d;
+  .banner input { background:#161616; color:#e6edf3; border:1px solid #363636;
                   border-radius:6px; padding:5px 10px; margin-right:6px; font-size:13px; }
   .banner button { background:#238636; color:#fff; border:1px solid #2ea04366; border-radius:6px;
                    padding:5px 14px; cursor:pointer; font-size:13px; font-weight:600; }
   .spotlights { display:flex; gap:12px; margin-bottom:12px; }
-  .spot { flex:1; border:1px solid #30363d; border-radius:8px; padding:10px 14px; background:#161b22; }
+  .spot { flex:1; border:1px solid #363636; border-radius:8px; padding:10px 14px; background:#1e1e1e; }
   .spot .co { color:#8b949e; font-size:12px; }
   .spot .t { font-weight:600; }
   .searchrow { display:flex; gap:10px; margin-bottom:10px; }
-  .searchrow input { flex:1; background:#0d1117; color:#e6edf3; border:1px solid #30363d;
+  .searchrow input { flex:1; background:#161616; color:#e6edf3; border:1px solid #363636;
                      border-radius:6px; padding:7px 12px; font-size:14px; }
-  .listhead { border:1px solid #30363d; border-radius:8px 8px 0 0; background:#161b22;
+  .listhead { border:1px solid #363636; border-radius:8px 8px 0 0; background:#1e1e1e;
               padding:9px 16px; display:flex; gap:18px; align-items:center; font-size:13.5px; }
   .listhead .tab { cursor:pointer; color:#8b949e; font-weight:600; }
   .listhead .tab.on { color:#e6edf3; }
   .listhead .right { margin-left:auto; color:#8b949e; }
-  .rows { border:1px solid #30363d; border-top:none; border-radius:0 0 8px 8px; }
-  .issue { border-top:1px solid #21262d; padding:9px 16px; }
+  .rows { border:1px solid #363636; border-top:none; border-radius:0 0 8px 8px; }
+  .issue { border-top:1px solid #2a2a2a; padding:9px 16px; }
   .issue:first-child { border-top:none; }
   .issue summary { list-style:none; cursor:pointer; }
   .issue summary::-webkit-details-marker { display:none; }
@@ -259,10 +259,10 @@ PAGE = """<!doctype html>
   .lbl.season  { border-color:#d2992255; color:#e3b341; background:#d299221a; }
   .lbl.role    { border-color:#bc8cff55; color:#d2a8ff; background:#bc8cff1a; }
   .lbl.deg     { border-color:#4493f855; color:#79c0ff; background:#4493f81a; }
-  .lbl.src     { border-color:#30363d; color:#8b949e; background:transparent; }
+  .lbl.src     { border-color:#363636; color:#8b949e; background:transparent; }
   .posted { margin-left:auto; color:#8b949e; font-size:12.5px; white-space:nowrap; }
   .l2 { color:#8b949e; font-size:12.5px; margin-top:3px; padding-left:22px; }
-  .body { margin:10px 0 4px 22px; color:#9da7b3; font-size:13px; border-left:2px solid #30363d;
+  .body { margin:10px 0 4px 22px; color:#9da7b3; font-size:13px; border-left:2px solid #363636;
           padding-left:14px; white-space:pre-wrap; }
   .sugstat { color:#8b949e; font-size:12px; margin-top:8px; }
 </style>
