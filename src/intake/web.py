@@ -62,137 +62,251 @@ LANDING = """<!doctype html>
 <meta charset="utf-8">
 <title>RUemployed</title>
 <style>""" + BASE_CSS + """
-  .wrap { max-width:1010px; margin:0 auto; padding:0 20px; }
-  .tabs { border-bottom:1px solid #2a2a2a; display:flex; gap:8px; padding:0 20px; }
-  .tabs .tab { padding:10px 12px; color:#e6edf3; font-size:14px; border-bottom:2px solid transparent; }
+  .tabs { border-bottom:1px solid #2a2a2a; display:flex; gap:4px; padding:0 24px; }
+  .tabs .tab { padding:9px 12px 11px; color:#e6edf3; font-size:14px; border-bottom:2px solid transparent;
+               display:flex; gap:7px; align-items:center; }
   .tabs .tab.on { border-bottom-color:#f78166; font-weight:600; }
+  .tabs .tab.dim { color:#8b949e; }
+  .tabs .glyph { color:#8b949e; }
   .tabs .n { background:#363636; border-radius:2em; padding:0 8px; font-size:12px; color:#c9d1d9; }
-  .profile { display:flex; gap:22px; align-items:flex-start; margin:34px 0 26px; }
-  .avatar { width:76px; height:76px; border-radius:12px; background:#1e1e1e; border:1px solid #363636;
-            display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:700; }
+  .wrap { max-width:1280px; margin:0 auto; padding:0 32px; }
+  .profile { display:flex; gap:24px; align-items:flex-start; margin:36px 0 24px; }
+  .avatar { width:100px; height:100px; border-radius:14px; background:#1e1e1e; border:1px solid #363636;
+            display:flex; align-items:center; justify-content:center; font-size:34px; font-weight:700; }
   .avatar span { color:#f85149; }
-  .pname { font-size:24px; font-weight:600; margin:0; }
-  .verified { border:1px solid #3fb95055; color:#7ee787; border-radius:2em; padding:0 10px;
-              font-size:12px; display:inline-block; margin-top:4px; }
-  .pmeta { color:#8b949e; font-size:13.5px; margin-top:8px; }
-  .notif { margin-left:auto; background:#2a2a2a; color:#e6edf3; border:1px solid #363636;
-           border-radius:6px; padding:5px 16px; font-size:13px; font-weight:600; cursor:pointer; }
-  .notif:hover { background:#363636; }
-  h3.sec { font-size:16px; font-weight:400; color:#e6edf3; margin:8px 0 12px; }
-  .pins { display:flex; gap:16px; }
+  .pname { font-size:26px; font-weight:600; margin:2px 0 6px; }
+  .verified { border:1px solid #3fb95055; color:#7ee787; border-radius:2em; padding:1px 10px;
+              font-size:12px; display:inline-block; }
+  .pmeta { color:#8b949e; font-size:14px; margin-top:12px; display:flex; gap:18px; flex-wrap:wrap; }
+  .notif { margin-left:auto; background:#21262d; color:#e6edf3; border:1px solid #363636;
+           border-radius:6px; padding:5px 16px; font-size:13px; font-weight:600; cursor:pointer;
+           align-self:flex-start; }
+  .notif:hover { background:#30363d; }
+  .cols { display:flex; gap:40px; align-items:flex-start; padding-bottom:60px; }
+  .left { flex:1; min-width:0; }
+  .rail { width:280px; flex-shrink:0; }
+  h3.sec { font-size:16px; font-weight:400; color:#e6edf3; margin:6px 0 14px; }
+  .pins { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:28px; }
+  .pin { border:1px solid #363636; border-radius:8px; background:#161616; padding:14px 16px; }
   .pin.dim { opacity:.55; }
-  .pin { width:32%; border:1px solid #363636; border-radius:8px; background:#161616;
-         padding:16px 18px; }
   .pin .name { font-weight:600; }
-  .pin .pub { border:1px solid #363636; color:#8b949e; border-radius:2em; padding:0 8px;
-              font-size:12px; margin-left:6px; }
-  .pin .desc { color:#8b949e; font-size:13px; margin:8px 0 14px; }
-  .pin .foot { color:#8b949e; font-size:12.5px; display:flex; gap:14px; }
-  .gdot { color:#3fb950; }
-  .repolist { border:1px solid #363636; border-radius:8px; margin-bottom:40px; }
-  .repo { border-top:1px solid #2a2a2a; padding:14px 18px; }
+  .pub { border:1px solid #363636; color:#8b949e; border-radius:2em; padding:0 8px;
+         font-size:12px; margin-left:7px; }
+  .pin .desc { color:#8b949e; font-size:13px; margin:7px 0 16px; min-height:20px; }
+  .foot { color:#8b949e; font-size:12.5px; display:flex; gap:16px; align-items:center; }
+  .gdot { color:#3fb950; } .ydot { color:#d29922; } .rdot { color:#f85149; }
+  .findrow { display:flex; gap:10px; margin-bottom:14px; }
+  .findrow input { flex:1; background:#161616; color:#e6edf3; border:1px solid #363636;
+                   border-radius:6px; padding:6px 12px; font-size:14px; }
+  .ghostbtn { background:#21262d; color:#c9d1d9; border:1px solid #363636; border-radius:6px;
+              padding:5px 14px; font-size:13px; }
+  .repolist { border:1px solid #363636; border-radius:8px; }
+  .repo { border-top:1px solid #2a2a2a; padding:16px 18px; display:flex; gap:16px; }
   .repo:first-child { border-top:none; }
   .repo.dim { opacity:.55; }
-  .rname { font-weight:600; font-size:15px; }
+  .rmain { flex:1; min-width:0; }
+  .rname { font-weight:600; font-size:16px; }
   .rname.soon { color:#8b949e; }
-  .pub { border:1px solid #363636; color:#8b949e; border-radius:2em; padding:0 8px;
-         font-size:12px; margin-left:8px; }
-  .rdesc { color:#8b949e; font-size:13px; margin:4px 0 8px; }
-  .rfoot { color:#8b949e; font-size:12.5px; }
+  .rdesc { color:#8b949e; font-size:13.5px; margin:5px 0 10px; }
+  .spark { width:155px; height:30px; align-self:center; flex-shrink:0; }
+  .spark polyline { fill:none; stroke:#f85149aa; stroke-width:1.6; }
+  .railsec { margin-bottom:28px; }
+  .railhead { font-size:15px; font-weight:600; margin-bottom:12px; }
+  .people { display:grid; grid-template-columns:repeat(6, 1fr); gap:8px; }
+  .person { aspect-ratio:1; border-radius:8px; background:#1e1e1e; border:1px solid #363636;
+            display:flex; align-items:center; justify-content:center; font-size:12px;
+            font-weight:700; color:#c9d1d9; }
+  .viewall { font-size:13px; margin-top:10px; display:inline-block; }
+  .langrow { display:flex; gap:8px; align-items:center; color:#c9d1d9; font-size:13.5px;
+             margin-bottom:6px; }
+  .topics { display:flex; flex-wrap:wrap; gap:7px; }
+  .topic { background:#1f6feb26; color:#79c0ff; border-radius:2em; padding:2px 12px;
+           font-size:12.5px; }
+  .abuse { color:#8b949e; font-size:12.5px; margin-top:34px; }
 </style>
 """ + TOPBAR_HOME + """
 <div class="tabs">
-  <span class="tab on">Overview</span>
-  <span class="tab">Repositories <span class="n">7</span></span>
+  <span class="tab on"><span class="glyph">&#9783;</span>Overview</span>
+  <span class="tab"><span class="glyph">&#128214;</span>Repositories <span class="n">7</span></span>
+  <span class="tab dim"><span class="glyph">&#9638;</span>Projects</span>
+  <span class="tab dim"><span class="glyph">&#128101;</span>People</span>
 </div>
 <div class="wrap">
   <div class="profile">
     <div class="avatar"><span>RU</span></div>
     <div>
-      <p class="pname"><span style="color:#f85149">RU</span>employed</p>
-      <span class="verified">Verified &middot; scarlet knights build here</span>
-      <div class="pmeta">&#128101; Rutgers CS students &nbsp; &#128205; New Brunswick, NJ
-        &nbsp; &#128279; <a href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">/listings</a></div>
+      <div class="pname"><span style="color:#f85149">RU</span>employed</div>
+      <span class="verified">Verified</span>
+      <div class="pmeta">
+        <span>&#128101; <b id="followers">&hellip;</b> postings tracked</span>
+        <span>&#128205; New Brunswick, NJ</span>
+        <span>&#128279; <a href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">ruemployed/listings</a></span>
+      </div>
     </div>
     <button class="notif" onclick="this.textContent='coming soon'">Notification settings</button>
   </div>
-  <h3 class="sec">Pinned</h3>
-  <div class="pins">
-    <div class="pin">
-      <div><span>&#128214;</span> <a class="name" href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">All Listings</a><span class="pub">Public</span></div>
-      <div class="desc">What you're here for</div>
-      <div class="foot"><span><span class="gdot">&#9679;</span> Internships</span>
-        <span>&#9733; <span id="livecount">&hellip;</span> open</span>
-        <span>updated continuously</span></div>
+  <div class="cols">
+  <div class="left">
+    <h3 class="sec">Pinned</h3>
+    <div class="pins">
+      <div class="pin">
+        <div><span>&#128214;</span> <a class="name" href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">All Listings</a><span class="pub">Public</span></div>
+        <div class="desc">What you're here for</div>
+        <div class="foot"><span><span class="gdot">&#9679;</span> internships</span>
+          <span>&#9733; <b data-star="all">&hellip;</b></span>
+          <span>&#8916; <b data-fork="all">&hellip;</b> companies</span></div>
+      </div>
+      <div class="pin">
+        <div><span>&#128214;</span> <a class="name" href="/listings?repo=%2727+Cycle&amp;degree=BS&amp;season=cycle:2027">'27 Cycle</a><span class="pub">Public</span></div>
+        <div class="desc">Bachelors, every 2027 season</div>
+        <div class="foot"><span><span class="gdot">&#9679;</span> internships</span>
+          <span>&#9733; <b data-star="cycle27">&hellip;</b></span>
+          <span>&#8916; <b data-fork="cycle27">&hellip;</b> companies</span></div>
+      </div>
+      <div class="pin dim">
+        <div><span>&#128214;</span> <span class="name" style="color:#8b949e">events</span><span class="pub">Coming soon</span></div>
+        <div class="desc">Company interest meetings, hackathons, recruiting events.
+        Soft tunnels into the hiring pipeline.</div>
+        <div class="foot"><span><span class="ydot">&#9679;</span> events</span></div>
+      </div>
     </div>
-    <div class="pin">
-      <div><span>&#128214;</span> <a class="name" href="/listings?repo=%2727+Cycle&amp;degree=BS&amp;season=cycle:2027">'27 Cycle</a><span class="pub">Public</span></div>
-      <div class="desc">Bachelors, every 2027 season</div>
-      <div class="foot"><span><span class="gdot">&#9679;</span> internships</span>
-        <span>&#9733; <span id="livecount27">&hellip;</span> open</span></div>
+    <h3 class="sec">Repositories</h3>
+    <div class="findrow">
+      <input id="findrepo" placeholder="Find a repository..." oninput="filterRepos()">
+      <span class="ghostbtn">Type &#9662;</span>
+      <span class="ghostbtn">Language &#9662;</span>
+      <span class="ghostbtn">Sort &#9662;</span>
     </div>
-    <div class="pin dim">
-      <div><span>&#128214;</span> <span class="name" style="color:#8b949e">events</span><span class="pub">Coming soon</span></div>
-      <div class="desc">Company interest meetings, hackathons, recruiting events. Soft
-      tunnels into the hiring pipeline.</div>
-      <div class="foot"><span><span class="gdot" style="color:#d29922">&#9679;</span> events</span></div>
+    <div class="repolist" id="repolist"></div>
+    <div class="abuse">Report abuse</div>
+  </div>
+  <div class="rail">
+    <div class="railsec">
+      <div class="railhead">People</div>
+      <div class="people" id="people"></div>
+      <a class="viewall" href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">View all</a>
+    </div>
+    <div class="railsec">
+      <div class="railhead">Top languages</div>
+      <div class="langrow"><span class="gdot">&#9679;</span> internships</div>
+      <div class="langrow"><span class="ydot">&#9679;</span> events</div>
+      <div class="langrow"><span class="rdot">&#9679;</span> newgrad</div>
+    </div>
+    <div class="railsec">
+      <div class="railhead">Most used topics</div>
+      <div class="topics" id="topics"></div>
     </div>
   </div>
-  <h3 class="sec">Repositories</h3>
-  <div class="repolist">
-    <div class="repo">
-      <div><a class="rname" href="/listings?repo=Summer+%2727&amp;degree=BS&amp;season=Summer+2027">Summer '27</a><span class="pub">Public</span></div>
-      <div class="rdesc">Undergraduate internships, Summer 2027</div>
-      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
-    </div>
-    <div class="repo">
-      <div><a class="rname" href="/listings?repo=Spring+%2727&amp;degree=BS&amp;season=Spring+2027">Spring '27</a><span class="pub">Public</span></div>
-      <div class="rdesc">Undergraduate internships, Spring 2027</div>
-      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
-    </div>
-    <div class="repo">
-      <div><a class="rname" href="/listings?repo=Fall+%2726&amp;degree=BS&amp;season=Fall+2026">Fall '26</a><span class="pub">Public</span></div>
-      <div class="rdesc">Undergraduate internships, Fall 2026</div>
-      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
-    </div>
-    <div class="repo">
-      <div><a class="rname" href="/listings?repo=Winter+%2727&amp;degree=BS&amp;season=Winter+2027">Winter '27</a><span class="pub">Public</span></div>
-      <div class="rdesc">Undergraduate internships, Winter 2027</div>
-      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
-    </div>
-    <div class="repo">
-      <div><a class="rname" href="/listings?repo=Bachelors&amp;degree=BS">Bachelors</a><span class="pub">Public</span></div>
-      <div class="rdesc">Everything open to undergraduates</div>
-      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
-    </div>
-    <div class="repo">
-      <div><a class="rname" href="/listings?repo=Masters%2FPhD&amp;degree=grad">Masters/PhD</a><span class="pub">Public</span></div>
-      <div class="rdesc">Graduate-level internships</div>
-      <div class="rfoot"><span class="gdot">&#9679;</span> internships</div>
-    </div>
-    <div class="repo dim">
-      <div><span class="rname soon">Summer '26</span><span class="pub">Closed</span></div>
-      <div class="rdesc">Undergraduate internships, Summer 2026 (season over)</div>
-      <div class="rfoot"><span class="gdot" style="color:#f85149">&#9679;</span> internships</div>
-    </div>
-    <div class="repo dim">
-      <div><span class="rname soon">New Grad</span><span class="pub">Coming soon</span></div>
-      <div class="rdesc">Full-time new grad roles</div>
-      <div class="rfoot"><span class="gdot">&#9679;</span> newgrad</div>
-    </div>
   </div>
 </div>
 <script>
 fetch("/api/visit", {method: "POST", headers: {"Content-Type": "application/json"},
   body: JSON.stringify({page: "landing"})});
+
+const OPEN = ["pending", "gated", "verified", "published"];
+const deg = p => (p.verdict && (p.verdict.degree_levels || []).length
+  ? p.verdict.degree_levels : (p.degree_levels || []));
+const sea = p => (p.verdict && p.verdict.season) || p.season || null;
+const bs = p => !deg(p).length || deg(p).includes("BS");
+const grad = p => !deg(p).length || deg(p).includes("MS") || deg(p).includes("PhD");
+
+const REPOS = [
+  {name: "Summer '27", desc: "Undergraduate internships, Summer 2027", lang: "internships",
+   href: "/listings?repo=Summer+%2727&degree=BS&season=Summer+2027",
+   pred: p => bs(p) && sea(p) === "Summer 2027"},
+  {name: "Spring '27", desc: "Undergraduate internships, Spring 2027", lang: "internships",
+   href: "/listings?repo=Spring+%2727&degree=BS&season=Spring+2027",
+   pred: p => bs(p) && sea(p) === "Spring 2027"},
+  {name: "Fall '26", desc: "Undergraduate internships, Fall 2026", lang: "internships",
+   href: "/listings?repo=Fall+%2726&degree=BS&season=Fall+2026",
+   pred: p => bs(p) && sea(p) === "Fall 2026"},
+  {name: "Winter '27", desc: "Undergraduate internships, Winter 2027", lang: "internships",
+   href: "/listings?repo=Winter+%2727&degree=BS&season=Winter+2027",
+   pred: p => bs(p) && sea(p) === "Winter 2027"},
+  {name: "Bachelors", desc: "Everything open to undergraduates", lang: "internships",
+   href: "/listings?repo=Bachelors&degree=BS",
+   pred: p => bs(p)},
+  {name: "Masters/PhD", desc: "Graduate-level internships", lang: "internships",
+   href: "/listings?repo=Masters%2FPhD&degree=grad",
+   pred: p => grad(p)},
+  {name: "Summer '26", desc: "Undergraduate internships, Summer 2026 (season over)",
+   lang: "internships", closed: true, pred: () => false},
+  {name: "New Grad", desc: "Full-time new grad roles", lang: "newgrad", soon: true,
+   pred: () => false},
+];
+
+function spark(rows) {
+  const days = new Array(21).fill(0);
+  const now = Date.now();
+  rows.forEach(p => {
+    const t = p.date_posted || p.first_seen;
+    if (!t) return;
+    const d = Math.floor((now - new Date(t).getTime()) / 864e5);
+    if (d >= 0 && d < 21) days[20 - d] += 1;
+  });
+  const max = Math.max(1, ...days);
+  const pts = days.map((v, i) => (i * (155 / 20)).toFixed(1) + "," + (27 - (v / max) * 24).toFixed(1));
+  return `<svg class="spark" viewBox="0 0 155 30"><polyline points="${pts.join(" ")}"/></svg>`;
+}
+
+let DATA = [];
+function renderRepos() {
+  const q = (document.getElementById("findrepo").value || "").toLowerCase();
+  const openRows = DATA.filter(p => OPEN.includes(p.status));
+  document.getElementById("repolist").innerHTML = REPOS
+    .filter(r => r.name.toLowerCase().includes(q))
+    .map(r => {
+      const rows = openRows.filter(r.pred);
+      const dim = r.closed || r.soon;
+      const badge = r.closed ? "Closed" : (r.soon ? "Coming soon" : "Public");
+      const nm = dim ? `<span class="rname soon">${r.name}</span>`
+                     : `<a class="rname" href="${r.href}">${r.name}</a>`;
+      const dot = r.closed ? "rdot" : (r.soon ? "ydot" : "gdot");
+      const stats = dim ? "" :
+        ` <span>&#9733; ${rows.length}</span><span>Updated today</span>`;
+      return `<div class="repo${dim ? " dim" : ""}">
+        <div class="rmain">
+          <div>${nm}<span class="pub">${badge}</span></div>
+          <div class="rdesc">${r.desc}</div>
+          <div class="foot"><span><span class="${dot}">&#9679;</span> ${r.lang}</span>${stats}</div>
+        </div>
+        ${dim ? "" : spark(rows)}
+      </div>`;
+    }).join("");
+}
+function filterRepos() { renderRepos(); }
+
+function hue(s) {
+  let h = 0;
+  for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
+}
 fetch("/api/postings").then(r => r.json()).then(d => {
-  const isOpen = p => ["pending","gated","verified","published"].includes(p.status);
-  document.getElementById("livecount").textContent = d.filter(isOpen).length;
-  const deg = p => (p.verdict && (p.verdict.degree_levels || []).length
-    ? p.verdict.degree_levels : (p.degree_levels || []));
-  const sea = p => (p.verdict && p.verdict.season) || p.season || null;
-  document.getElementById("livecount27").textContent = d.filter(p => isOpen(p)
-    && (!deg(p).length || deg(p).includes("BS")) && (sea(p) || "").includes("2027")).length;
+  DATA = d;
+  const open = d.filter(p => OPEN.includes(p.status));
+  document.getElementById("followers").textContent = open.length;
+  const set = (attr, rows) => {
+    const el = document.querySelector(`[data-star="${attr}"]`);
+    const fk = document.querySelector(`[data-fork="${attr}"]`);
+    if (el) el.textContent = rows.length;
+    if (fk) fk.textContent = new Set(rows.map(p => p.company)).size;
+  };
+  set("all", open);
+  set("cycle27", open.filter(p => bs(p) && (sea(p) || "").includes("2027")));
+  renderRepos();
+  const byCo = {};
+  open.forEach(p => byCo[p.company] = (byCo[p.company] || 0) + 1);
+  const top = Object.entries(byCo).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  document.getElementById("people").innerHTML = top.map(([co]) => {
+    const init = co.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
+    return `<div class="person" title="${co}" style="border-color:hsl(${hue(co)} 40% 35%);
+      color:hsl(${hue(co)} 60% 75%)">${init}</div>`;
+  }).join("");
+  const roles = {};
+  open.forEach(p => roles[p.role] = (roles[p.role] || 0) + 1);
+  document.getElementById("topics").innerHTML = Object.entries(roles)
+    .sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([r]) => `<a class="topic" href="/listings?repo=${encodeURIComponent(r)}&role=${encodeURIComponent(r)}&degree=any&country=all">${r.toLowerCase()}</a>`).join("");
 });
 </script>
 """
@@ -331,6 +445,7 @@ if (params.get("season")) season = params.get("season");
 if (params.get("repo")) {
   document.getElementById("crumbname").textContent = params.get("repo");
 }
+if (params.get("q")) document.getElementById("q").value = params.get("q");
 
 fetch("/api/visit", {method: "POST", headers: {"Content-Type": "application/json"},
   body: JSON.stringify({page: "listings:" + (params.get("repo") || "all")})});
