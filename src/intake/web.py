@@ -127,7 +127,7 @@ LANDING = """<!doctype html>
 """ + TOPBAR_HOME + """
 <div class="tabs">
   <span class="tab on"><span class="glyph">&#9783;</span>Overview</span>
-  <span class="tab"><span class="glyph">&#128214;</span>Repositories <span class="n">7</span></span>
+  <span class="tab"><span class="glyph">&#128214;</span>Repositories <span class="n">8</span></span>
   <span class="tab dim"><span class="glyph">&#9638;</span>Projects</span>
   <span class="tab dim"><span class="glyph">&#128101;</span>People</span>
 </div>
@@ -229,6 +229,10 @@ const REPOS = [
   {name: "Masters/PhD", desc: "Graduate-level internships", lang: "internships",
    href: "/listings?repo=Masters%2FPhD&degree=grad",
    pred: p => grad(p)},
+  {name: "Programs", desc: "Fellowships, research programs, scholarships. Underclassmen friendly.",
+   lang: "programs",
+   href: "/listings?repo=Programs&type=programs&degree=any&country=all",
+   pred: p => (p.category || "internship") !== "internship"},
   {name: "Summer '26", desc: "Undergraduate internships, Summer 2026 (season over)",
    lang: "internships", closed: true, pred: () => false},
   {name: "New Grad", desc: "Full-time new grad roles", lang: "newgrad", soon: true,
@@ -387,6 +391,8 @@ PAGE = """<!doctype html>
   <div class="side-inner">
   <div class="side-section"><div class="side-head">Status</div>
     <select class="side-select" id="f-status" onchange="tab=this.value;render()"></select></div>
+  <div class="side-section"><div class="side-head">Type</div>
+    <select class="side-select" id="f-type" onchange="ctype=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Degree</div>
     <select class="side-select" id="f-degree" onchange="degree=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Role</div>
@@ -432,7 +438,7 @@ const FRESH = [["all", Infinity], ["2h", 2], ["8h", 8], ["24h", 24], ["2d", 48],
 const PRESTIGE = ["jane street", "openai", "anthropic", "google", "apple", "nvidia", "stripe",
   "citadel", "hudson river trading", "two sigma", "palantir", "databricks", "microsoft", "meta"];
 let tab = "open", degree = "BS", role = "all", fresh = "all",
-    country = "United States", season = "all", data = [];
+    country = "United States", season = "all", ctype = "all", data = [];
 
 // Repo presets arrive as query params; they override the defaults above.
 const params = new URLSearchParams(location.search);
@@ -442,6 +448,7 @@ if (params.get("role")) role = params.get("role");
 if (params.get("fresh")) fresh = params.get("fresh");
 if (params.get("country")) country = params.get("country");
 if (params.get("season")) season = params.get("season");
+if (params.get("type")) ctype = params.get("type");
 if (params.get("repo")) {
   document.getElementById("crumbname").textContent = params.get("repo");
 }
@@ -494,6 +501,11 @@ function matches(p) {
     if (d.length && !d.includes("MS") && !d.includes("PhD")) return false;
   } else if (degree !== "any" && d.length && !d.includes(degree)) return false;
   if (role !== "all" && p.role !== role) return false;
+  if (ctype !== "all") {
+    if (ctype === "programs") {
+      if ((p.category || "internship") === "internship") return false;
+    } else if ((p.category || "internship") !== ctype) return false;
+  }
   if (fresh !== "all") {
     const h = hoursAgo(p);
     if (h === null || h > FRESH.find(f => f[0] === fresh)[1]) return false;
@@ -526,7 +538,9 @@ function fillOpts(id, opts, cur) {
 function rowHtml(p) {
   const cls = p.status === "rejected" ? "closed" : (p.status === "pending" || p.status === "gated" ? "pend" : "open");
   const misc =
-    `<span class="lbl role">${esc(p.role)}</span> `
+    ((p.category || "internship") !== "internship"
+      ? `<span class="lbl season">${esc(p.category)}</span> ` : "")
+    + `<span class="lbl role">${esc(p.role)}</span> `
     + `<span class="lbl deg">${degreesOf(p).join("/") || "any degree"}</span> `
     + (p.countries || []).slice(0, 3).map(c => `<span class="lbl country">${esc(c)}</span>`).join(" ") + " "
     + (seasonOf(p) ? `<span class="lbl season">${esc(seasonOf(p))}</span> ` : "")
@@ -562,6 +576,11 @@ function render() {
 
   fillOpts("f-status", [["open", "open (" + openN + ")"],
     ["closed", "closed (" + (data.length - openN) + ")"]], tab);
+  const cats = [...new Set(data.map(p => p.category || "internship"))].sort();
+  const tOpts = [["all", "all (" + data.length + ")"]]
+    .concat(cats.map(c => [c, c + " (" + data.filter(p => (p.category || "internship") === c).length + ")"]))
+    .concat(cats.length > 1 ? [["programs", "non-internship"]] : []);
+  ctype = fillOpts("f-type", tOpts, tOpts.some(o => o[0] === ctype) ? ctype : "all") || "all";
   fillOpts("f-degree", DEGREES.map(([v, label]) => [v, v === "any" ? "any" : label + " (" + data.filter(p => {
     const dd = degreesOf(p);
     if (v === "grad") return !dd.length || dd.includes("MS") || dd.includes("PhD");

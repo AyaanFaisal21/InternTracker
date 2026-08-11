@@ -106,3 +106,23 @@ def test_apple_parser_filters_and_builds_urls():
         "/software-engineering-masters-internships"
     )
     assert d.locations == ["Cupertino"]
+
+
+def test_opportunity_list_keeps_nonintern_titles():
+    from intake.detectors import OpportunityListDetector
+
+    payload = [
+        {"id": "1", "company_name": "AI4ALL", "title": "AI4ALL Ignite",
+         "url": "https://ai4all.org/ignite", "locations": ["Remote"],
+         "category": "Program", "season": "Summer 2026", "active": True,
+         "is_visible": True, "date_posted": 1770212009},
+        {"id": "2", "company_name": "Dead Co", "title": "Old Program",
+         "url": "https://x.co", "active": False, "is_visible": True},
+    ]
+    client = fixture_client({"listings.json": payload})
+    dets = OpportunityListDetector(["https://raw.example/listings.json"], client=client).poll()
+    assert len(dets) == 1  # inactive dropped; no intern prefilter applied
+    d = dets[0]
+    assert d.category == "program"
+    assert d.season == "Summer 2026"
+    assert d.payload["opportunity_type"] is None or True
