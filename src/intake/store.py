@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS postings (
     title         TEXT NOT NULL,
     url           TEXT NOT NULL,
     canonical_url TEXT,
+    category      TEXT NOT NULL DEFAULT 'internship',
     degree_levels TEXT NOT NULL DEFAULT '[]',  -- JSON array
     date_posted   TEXT,
     date_posted_text TEXT,
@@ -75,6 +76,10 @@ class Store:
             self.conn.execute("ALTER TABLE postings ADD COLUMN season TEXT")
         if "qualifications" not in cols:
             self.conn.execute("ALTER TABLE postings ADD COLUMN qualifications TEXT")
+        if "category" not in cols:
+            self.conn.execute(
+                "ALTER TABLE postings ADD COLUMN category TEXT NOT NULL DEFAULT 'internship'"
+            )
         self.conn.commit()
 
     def get(self, posting_id: str) -> Posting | None:
@@ -164,12 +169,13 @@ class Store:
     def _write(self, p: Posting) -> None:
         self.conn.execute(
             """INSERT INTO postings
-               (id, company, title, url, canonical_url, degree_levels,
+               (id, company, title, url, canonical_url, category, degree_levels,
                 date_posted, date_posted_text, season, qualifications,
                 locations, sources, first_seen, status, reject_reason, verdict)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
                  canonical_url=excluded.canonical_url,
+                 category=excluded.category,
                  degree_levels=excluded.degree_levels,
                  date_posted=excluded.date_posted,
                  date_posted_text=excluded.date_posted_text,
@@ -184,6 +190,7 @@ class Store:
                 p.title,
                 p.url,
                 p.canonical_url,
+                p.category,
                 json.dumps(p.degree_levels),
                 p.date_posted.isoformat() if p.date_posted else None,
                 p.date_posted_text,
@@ -209,6 +216,7 @@ class Store:
             title=row["title"],
             url=row["url"],
             canonical_url=row["canonical_url"],
+            category=row["category"],
             degree_levels=json.loads(row["degree_levels"]),
             date_posted=row["date_posted"],
             date_posted_text=row["date_posted_text"],

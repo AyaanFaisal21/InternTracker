@@ -26,6 +26,7 @@ class Source(str, Enum):
     WORKDAY = "workday"
     CUSTOM = "custom"
     SUGGESTION = "suggestion"
+    OPPORTUNITY_LIST = "opportunity_list"
 
 
 class Status(str, Enum):
@@ -48,6 +49,7 @@ class RawDetection(BaseModel):
     title: str
     url: str
     locations: list[str] = Field(default_factory=list)
+    category: str = "internship"         # internship | program | scholarship | research
     date_posted: datetime | None = None  # from the source payload when it carries one
     date_posted_text: str | None = None  # raw phrasing when no parseable date
     detected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -88,6 +90,7 @@ class Posting(BaseModel):
     title: str
     url: str                          # as detected
     canonical_url: str | None = None  # resolved employer page; publish this, never url
+    category: str = "internship"
     degree_levels: list[DegreeLevel] = Field(default_factory=list)
     # Heuristic (rule gate). verdict.degree_levels, when present, overrides.
     locations: list[str] = Field(default_factory=list)
@@ -109,6 +112,7 @@ class Posting(BaseModel):
             title=d.title,
             url=d.url,
             locations=d.locations,
+            category=d.category,
             sources=[d.source],
             date_posted=d.date_posted,
             date_posted_text=d.date_posted_text,
