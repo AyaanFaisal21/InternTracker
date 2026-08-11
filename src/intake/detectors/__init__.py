@@ -1,6 +1,6 @@
 from .ashby import AshbyDetector
 from .base import Detector, looks_like_swe_internship
-from .github_lists import GithubListDetector
+from .github_lists import GithubListDetector, OpportunityListDetector
 from .greenhouse import GreenhouseDetector
 from .lever import LeverDetector
 from .browser import BROWSER_DETECTORS
@@ -19,4 +19,5 @@ __all__ = [
     "SuggestionDetector",
     "AshbyDetector",
     "GithubListDetector",
+    "OpportunityListDetector",
 ]

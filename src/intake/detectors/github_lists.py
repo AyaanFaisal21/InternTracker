@@ -67,3 +67,54 @@ class GithubListDetector:
                     )
                 )
         return out
+
+
+class OpportunityListDetector:
+    """Curated non-internship lists (underclassmen-opportunities schema).
+
+    Same listings.json shape as the internship lists plus category,
+    opportunity_type, target_year, and a season string. Curated for the
+    audience already, so no SWE title prefilter. Inactive entries skipped.
+    """
+
+    name = "opportunity_list"
+
+    def __init__(self, listing_urls: list[str], client: httpx.Client | None = None):
+        self.listing_urls = listing_urls
+        self.client = client or httpx.Client(timeout=30.0, follow_redirects=True)
+
+    def poll(self) -> list[RawDetection]:
+        from ..dates import parse_season
+
+        out: list[RawDetection] = []
+        for url in self.listing_urls:
+            try:
+                resp = self.client.get(url)
+                resp.raise_for_status()
+                entries = resp.json()
+            except (httpx.HTTPError, ValueError):
+                continue
+            for e in entries:
+                if not e.get("active", False) or not e.get("is_visible", True):
+                    continue
+                ts = e.get("date_posted") or e.get("date_updated") or 0
+                out.append(
+                    RawDetection(
+                        source=Source.OPPORTUNITY_LIST,
+                        company=e.get("company_name", ""),
+                        title=e.get("title", ""),
+                        url=e.get("url", ""),
+                        locations=e.get("locations", []),
+                        category=(e.get("category") or "program").lower(),
+                        date_posted=datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None,
+                        payload={
+                            "list_id": e.get("id"),
+                            "opportunity_type": e.get("opportunity_type"),
+                            "target_year": e.get("target_year"),
+                            "season_text": e.get("season"),
+                        },
+                    )
+                )
+                if out and (season := parse_season(e.get("season") or "")):
+                    out[-1].payload["season_parsed"] = season
+        return out

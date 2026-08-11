@@ -62,3 +62,7 @@ custom:
 # Browser-render tier (needs: pip install -e '.[browser]' && playwright install chromium)
 browser:
   - apple
+
+# Curated non-internship lists (programs, scholarships, research)
+opportunity_lists:
+  - https://raw.githubusercontent.com/Jose-Gael-Cruz-Lopez/underclassmen-opportunities/main/.github/scripts/listings.json
