@@ -13,18 +13,23 @@ import httpx
 
 from .schema import DegreeLevel
 
+# Hyphen guards keep the BS/MS abbreviations from matching CSS vendor
+# prefixes (-ms-flex) and kebab-case identifiers.
 PATTERNS: dict[DegreeLevel, re.Pattern] = {
-    "BS": re.compile(r"bachelor|\bb\.?s\.?\b|\bbsc\b|undergrad(?:uate)?", re.IGNORECASE),
-    "MS": re.compile(r"master|\bm\.?s\.?\b|\bmsc\b|\bmeng\b", re.IGNORECASE),
+    "BS": re.compile(r"bachelor|(?<![\w-])b\.?s\.?(?![\w-])|\bbsc\b|undergrad(?:uate)?", re.IGNORECASE),
+    "MS": re.compile(r"master|(?<![\w-])m\.?s\.?(?![\w-])|\bmsc\b|\bmeng\b", re.IGNORECASE),
     "PhD": re.compile(r"ph\.?\s?d|doctoral|doctorate", re.IGNORECASE),
 }
 
+SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 WORKDAY_URL_RE = re.compile(r"https://([^/]+)/en-US/([^/]+)(/job/.+)$")
 
 
 def strip_tags(html: str) -> str:
-    return TAG_RE.sub(" ", html)
+    """Tags out, and script/style BODIES out too. CSS and JS text is not
+    page content; leaving it in poisons every downstream regex."""
+    return TAG_RE.sub(" ", SCRIPT_STYLE_RE.sub(" ", html))
 
 
 def classify(title: str, page_text: str) -> list[DegreeLevel]:

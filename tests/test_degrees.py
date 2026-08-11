@@ -35,3 +35,13 @@ def test_workday_detail_fetch_fails_soft():
     client = fixture_client({})  # every request 404s
     url = "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/X/Y_JR1"
     assert workday_detail_text(url, client) == ""
+
+
+def test_strip_tags_removes_style_and_script_bodies():
+    html = "<style>.x{-ms-flex:1}</style><script>var ms = 1;</script><p>BS required</p>"
+    assert "ms-flex" not in strip_tags(html)
+    assert "BS required" in strip_tags(html)
+
+
+def test_css_vendor_prefix_not_ms_degree():
+    assert classify("SWE Intern", "display:-ms-flexbox;-ms-flex-wrap:wrap") == []

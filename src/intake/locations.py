@@ -113,6 +113,22 @@ _US_STATE_NAMES = {
 
 # Bare-city labels seen on boards that never name the country.
 _CITY_HINTS: dict[str, str] = {
+    # US hubs and their list-style abbreviations
+    "sf": "United States", "nyc": "United States", "la": "United States",
+    "bay area": "United States", "san francisco": "United States",
+    "los angeles": "United States", "san jose": "United States",
+    "santa clara": "United States", "palo alto": "United States",
+    "mountain view": "United States", "menlo park": "United States",
+    "sunnyvale": "United States", "cupertino": "United States",
+    "redmond": "United States", "bellevue": "United States",
+    "seattle": "United States", "boston": "United States",
+    "austin": "United States", "chicago": "United States",
+    "atlanta": "United States", "denver": "United States",
+    "miami": "United States", "dallas": "United States",
+    "houston": "United States", "san diego": "United States",
+    "philadelphia": "United States", "pittsburgh": "United States",
+    "phoenix": "United States", "portland": "United States",
+    "washington dc": "United States", "dc": "United States",
     "bengaluru": "India", "bangalore": "India", "mumbai": "India",
     "hyderabad": "India", "chennai": "India", "pune": "India",
     "new delhi": "India", "gurgaon": "India", "gurugram": "India", "noida": "India",

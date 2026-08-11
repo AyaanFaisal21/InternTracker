@@ -29,3 +29,7 @@ def test_remote_and_unknown():
 def test_multi_location_posting():
     got = countries_of(["US, CA, Santa Clara", "Toronto", "Remote - Europe"])
     assert got == ["Canada", "Remote", "United States"]
+
+
+def test_us_city_abbreviations():
+    assert countries_of(["SF", "NYC"]) == ["United States"]
