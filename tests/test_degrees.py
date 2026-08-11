@@ -45,3 +45,15 @@ def test_strip_tags_removes_style_and_script_bodies():
 
 def test_css_vendor_prefix_not_ms_degree():
     assert classify("SWE Intern", "display:-ms-flexbox;-ms-flex-wrap:wrap") == []
+
+
+def test_eeoc_boilerplate_not_ms():
+    text = ("Join our team this winter. "
+            "Voluntary Self-Identification of Disability: conditions include "
+            "Parkinson's disease, multiple sclerosis (MS), and others.")
+    assert classify("Software Engineer Intern", text) == []
+
+
+def test_abbrev_needs_degree_context():
+    assert classify("SWE Intern", "our MS Teams channel is active") == []
+    assert classify("SWE Intern", "pursuing a BS or MS degree in Computer Science") == ["BS", "MS"]

@@ -13,13 +13,30 @@ import httpx
 
 from .schema import DegreeLevel
 
-# Hyphen guards keep the BS/MS abbreviations from matching CSS vendor
-# prefixes (-ms-flex) and kebab-case identifiers.
+# Full words match anywhere. The two-letter abbreviations are ambiguous
+# (CSS -ms-flex, "multiple sclerosis (MS)" in EEOC boilerplate), so they
+# are hyphen-guarded AND require degree context nearby.
 PATTERNS: dict[DegreeLevel, re.Pattern] = {
-    "BS": re.compile(r"bachelor|(?<![\w-])b\.?s\.?(?![\w-])|\bbsc\b|undergrad(?:uate)?", re.IGNORECASE),
-    "MS": re.compile(r"master|(?<![\w-])m\.?s\.?(?![\w-])|\bmsc\b|\bmeng\b", re.IGNORECASE),
+    "BS": re.compile(r"bachelor|\bbsc\b|undergrad(?:uate)?", re.IGNORECASE),
+    "MS": re.compile(r"master|\bmsc\b|\bmeng\b", re.IGNORECASE),
     "PhD": re.compile(r"ph\.?\s?d|doctoral|doctorate", re.IGNORECASE),
 }
+ABBREV_PATTERNS: dict[DegreeLevel, re.Pattern] = {
+    "BS": re.compile(r"(?<![\w-])b\.?s\.?(?![\w-])", re.IGNORECASE),
+    "MS": re.compile(r"(?<![\w-])m\.?s\.?(?![\w-])", re.IGNORECASE),
+}
+DEGREE_CONTEXT_RE = re.compile(
+    r"degree|pursuing|enrolled|education|graduat|university|student"
+    r"|computer science|engineering|\bscience\b",
+    re.IGNORECASE,
+)
+# Application-form boilerplate (EEOC self-identification etc.) mentions
+# medical conditions and demographics; never classify from it.
+BOILERPLATE_RE = re.compile(
+    r"voluntary self-identification|equal employment opportunity"
+    r"|eeo is the law|demographic questions",
+    re.IGNORECASE,
+)
 
 SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
@@ -32,16 +49,38 @@ def strip_tags(html: str) -> str:
     return TAG_RE.sub(" ", SCRIPT_STYLE_RE.sub(" ", html))
 
 
+def _abbrev_with_context(pat: re.Pattern, text: str, window: int = 120) -> bool:
+    return any(
+        DEGREE_CONTEXT_RE.search(text[max(0, m.start() - window): m.end() + window])
+        for m in pat.finditer(text)
+    )
+
+
 def classify(title: str, page_text: str) -> list[DegreeLevel]:
     """Degree levels the posting is open to, best-effort.
 
     A degree named in the title is decisive ("PhD Research Intern" -> PhD
-    only). Otherwise scan the page text for every level mentioned.
+    only). Otherwise scan page text: full degree words count anywhere;
+    two-letter abbreviations only near degree context.
     """
-    in_title = [lvl for lvl, pat in PATTERNS.items() if pat.search(title)]
+    def hits(text: str, contextual: bool) -> list[DegreeLevel]:
+        out = []
+        for lvl, pat in PATTERNS.items():
+            if pat.search(text):
+                out.append(lvl)
+            elif lvl in ABBREV_PATTERNS and (
+                ABBREV_PATTERNS[lvl].search(text) if not contextual
+                else _abbrev_with_context(ABBREV_PATTERNS[lvl], text)
+            ):
+                out.append(lvl)
+        return out
+
+    in_title = hits(title, contextual=False)
     if in_title:
         return in_title
-    return [lvl for lvl, pat in PATTERNS.items() if pat.search(page_text)]
+    m = BOILERPLATE_RE.search(page_text)
+    body = page_text[: m.start()] if m else page_text
+    return hits(body, contextual=True)
 
 
 def workday_detail_text(url: str, client: httpx.Client) -> str:
