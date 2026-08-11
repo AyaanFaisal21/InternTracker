@@ -106,15 +106,13 @@ class OpportunityListDetector:
                         url=e.get("url", ""),
                         locations=e.get("locations", []),
                         category=(e.get("category") or "program").lower(),
+                        season=parse_season(e.get("season") or ""),
                         date_posted=datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None,
                         payload={
                             "list_id": e.get("id"),
                             "opportunity_type": e.get("opportunity_type"),
                             "target_year": e.get("target_year"),
-                            "season_text": e.get("season"),
                         },
                     )
                 )
-                if out and (season := parse_season(e.get("season") or "")):
-                    out[-1].payload["season_parsed"] = season
         return out

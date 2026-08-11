@@ -120,7 +120,7 @@ class Pipeline:
                 p.canonical_url = gate.canonical_url
                 p.degree_levels = gate.degree_levels
                 p.qualifications = gate.qualifications
-                p.season = gate.season
+                p.season = p.season or gate.season
                 p.status = Status.GATED
             self.store.update(p)
 
