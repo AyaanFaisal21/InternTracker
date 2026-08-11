@@ -543,7 +543,8 @@ function rowHtml(p) {
     + `<span class="lbl role">${esc(p.role)}</span> `
     + `<span class="lbl deg">${degreesOf(p).join("/") || "any degree"}</span> `
     + (p.countries || []).slice(0, 3).map(c => `<span class="lbl country">${esc(c)}</span>`).join(" ") + " "
-    + (seasonOf(p) ? `<span class="lbl season">${esc(seasonOf(p))}</span> ` : "")
+    + (seasonOf(p) ? `<span class="lbl season">${esc(seasonOf(p))}</span> `
+       : (season !== "all" ? `<span class="lbl src">season unlisted</span> ` : ""))
     + p.sources.map(s => `<span class="lbl src">${esc(s)}</span>`).join(" ");
   const bodyParts = [];
   if (p.qualifications) bodyParts.push("<b>Qualifications</b><br>" + esc(p.qualifications));
