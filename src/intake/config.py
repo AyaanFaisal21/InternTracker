@@ -33,7 +33,8 @@ class Settings(BaseModel):
     watchlist: Watchlist
     db_path: Path = DEFAULT_DB
     verifier_model: str = "claude-opus-5"
-    list_max_age_days: int = 14  # backstop lists: ignore entries older than this
+    list_max_age_days: int = 0   # backstop lists: 0 = no age cutoff (an active
+    # posting is applyable regardless of age; lists also backfill old dates)
     page_fetch_timeout: float = 15.0
     max_page_chars: int = 20_000  # cap on posting-page text sent to the verifier
 

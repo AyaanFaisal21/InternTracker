@@ -33,7 +33,11 @@ class GithubListDetector:
         self.client = client or httpx.Client(timeout=30.0, follow_redirects=True)
 
     def poll(self) -> list[RawDetection]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.max_age_days)
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=self.max_age_days)
+            if self.max_age_days
+            else None
+        )
         out: list[RawDetection] = []
         for url in self.listing_urls:
             try:
@@ -49,7 +53,7 @@ class GithubListDetector:
                 if not looks_like_swe_internship(title + " intern"):  # list is intern-only
                     continue
                 ts = e.get("date_posted") or e.get("date_updated") or 0
-                if ts and datetime.fromtimestamp(ts, tz=timezone.utc) < cutoff:
+                if cutoff and ts and datetime.fromtimestamp(ts, tz=timezone.utc) < cutoff:
                     continue
                 posted = parse_epoch(ts)
                 out.append(
