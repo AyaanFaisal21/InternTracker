@@ -37,8 +37,13 @@ TECH_SIGNAL_RE = re.compile(
 
 
 def check_title(p: Posting) -> str | None:
-    """Hard-reject only unambiguous cases. The verifier owns the gray zone."""
-    if DISQUALIFYING_RE.search(p.title):
+    """Hard-reject only unambiguous cases. The verifier owns the gray zone.
+
+    The deny list targets job scams (brand-ambassador schemes, unpaid
+    commission roles). Curated non-internship categories legitimately use
+    those words (ambassador programs, volunteer research), so it applies
+    to internships only."""
+    if p.category == "internship" and DISQUALIFYING_RE.search(p.title):
         return "disqualifying term in title"
     if NON_TECH_RE.search(p.title) and not TECH_SIGNAL_RE.search(p.title):
         return "non-tech role"

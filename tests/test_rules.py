@@ -97,3 +97,13 @@ def test_timeout_keeps_posting(tmp_path):
     g = run_rules(p, client)
     assert g.reject_reason is None
     assert g.canonical_url == "https://careers.roblox.com/jobs/1"
+
+
+def test_program_ambassador_not_disqualified(tmp_path):
+    p = make_posting(
+        tmp_path, source=Source.OPPORTUNITY_LIST, company="GirlsWhoML",
+        title="Thinking About Thinking 2026 Ambassador Programme",
+        url="https://acme.com/prog", category="program",
+    )
+    client = fixture_client({"acme.com": "<p>ML mentorship for students</p>"})
+    assert run_rules(p, client).reject_reason is None
