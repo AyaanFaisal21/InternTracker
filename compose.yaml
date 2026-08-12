@@ -13,7 +13,7 @@ services:
       context: .
       target: web
     ports:
-      - "8642:8642"
+      - "${WEB_PORT:-8642}:8642"
     volumes:
       - data:/data
     restart: unless-stopped
