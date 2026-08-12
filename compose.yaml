@@ -1,0 +1,39 @@
+# RUemployed: poller (detection loop) + web (dashboard) over one SQLite
+# volume. WAL mode makes the two-process sharing safe on a single host.
+#
+#   docker compose up -d --build
+#   docker compose logs -f poller
+#
+# Verification: set ANTHROPIC_API_KEY in .env and switch the poller command
+# to drop --no-verify once the verification policy is decided.
+
+services:
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      - "8642:8642"
+    volumes:
+      - data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8642/api/postings', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  poller:
+    build:
+      context: .
+      target: poller
+    command: ["intake", "loop", "-i", "120", "--no-verify"]
+    volumes:
+      - data:/data
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  data:

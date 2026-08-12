@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+*.pyc
+intake.db*
+NOTES.md
+tests
+scripts
+.pytest_cache
