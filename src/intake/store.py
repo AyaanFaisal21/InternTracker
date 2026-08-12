@@ -57,6 +57,11 @@ class Store:
     def __init__(self, path: Path | str):
         self.conn = sqlite3.connect(str(path))
         self.conn.row_factory = sqlite3.Row
+        # Poller and web run as separate processes against this file. WAL
+        # lets readers proceed during writes; busy_timeout rides out the
+        # occasional write collision instead of raising immediately.
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
         self._migrate()
 

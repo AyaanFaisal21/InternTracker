@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field
 
-DEFAULT_WATCHLIST = Path(__file__).resolve().parents[2] / "config" / "watchlist.yaml"
-DEFAULT_DB = Path(__file__).resolve().parents[2] / "intake.db"
+# Env overrides make the same code run on a laptop and in a container.
+DEFAULT_WATCHLIST = Path(
+    os.environ.get("INTAKE_WATCHLIST")
+    or Path(__file__).resolve().parents[2] / "config" / "watchlist.yaml"
+)
+DEFAULT_DB = Path(
+    os.environ.get("INTAKE_DB")
+    or Path(__file__).resolve().parents[2] / "intake.db"
+)
 
 
 class WorkdayBoard(BaseModel):
