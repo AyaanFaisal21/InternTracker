@@ -297,6 +297,14 @@ fetch("/api/postings").then(r => r.json()).then(d => {
   };
   set("all", open);
   set("cycle27", open.filter(p => bs(p) && (!sea(p) || sea(p).includes("2027"))));
+  const events = open.filter(p => p.category === "event");
+  if (events.length) {
+    document.getElementById("eventspin").classList.remove("dim");
+    document.getElementById("eventsbadge").textContent = "Public";
+    document.getElementById("eventscount").innerHTML = "&#9733; " + events.length + " upcoming";
+    document.getElementById("eventsname").outerHTML =
+      `<a class="name" href="/listings?repo=events&type=event&degree=any&country=all">events</a>`;
+  }
   renderRepos();
   const byCo = {};
   open.forEach(p => byCo[p.company] = (byCo[p.company] || 0) + 1);
@@ -378,6 +386,7 @@ PAGE = """<!doctype html>
   .lbl.role    { border-color:#bc8cff55; color:#d2a8ff; background:#bc8cff1a; }
   .lbl.deg     { border-color:#4493f855; color:#79c0ff; background:#4493f81a; }
   .lbl.src     { border-color:#363636; color:#8b949e; background:transparent; }
+  .lbl.aud     { border-color:#db61a255; color:#ff9bce; background:#db61a21a; }
   .posted { margin-left:auto; color:#8b949e; font-size:12.5px; white-space:nowrap; }
   .l2 { color:#8b949e; font-size:12.5px; margin-top:3px; padding-left:22px; }
   .body { margin:10px 0 4px 22px; color:#9da7b3; font-size:13px; border-left:2px solid #363636;
@@ -393,6 +402,8 @@ PAGE = """<!doctype html>
     <select class="side-select" id="f-status" onchange="tab=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Type</div>
     <select class="side-select" id="f-type" onchange="ctype=this.value;render()"></select></div>
+  <div class="side-section"><div class="side-head">Audience</div>
+    <select class="side-select" id="f-aud" onchange="aud=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Degree</div>
     <select class="side-select" id="f-degree" onchange="degree=this.value;render()"></select></div>
   <div class="side-section"><div class="side-head">Role</div>
@@ -438,7 +449,7 @@ const FRESH = [["all", Infinity], ["2h", 2], ["8h", 8], ["24h", 24], ["2d", 48],
 const PRESTIGE = ["jane street", "openai", "anthropic", "google", "apple", "nvidia", "stripe",
   "citadel", "hudson river trading", "two sigma", "palantir", "databricks", "microsoft", "meta"];
 let tab = "open", degree = "BS", role = "all", fresh = "all",
-    country = "United States", season = "all", ctype = "all", data = [];
+    country = "United States", season = "all", ctype = "all", aud = "all", data = [];
 
 // Repo presets arrive as query params; they override the defaults above.
 const params = new URLSearchParams(location.search);
@@ -449,6 +460,7 @@ if (params.get("fresh")) fresh = params.get("fresh");
 if (params.get("country")) country = params.get("country");
 if (params.get("season")) season = params.get("season");
 if (params.get("type")) ctype = params.get("type");
+if (params.get("audience")) aud = params.get("audience");
 if (params.get("repo")) {
   document.getElementById("crumbname").textContent = params.get("repo");
 }
@@ -506,6 +518,7 @@ function matches(p) {
       if ((p.category || "internship") === "internship") return false;
     } else if ((p.category || "internship") !== ctype) return false;
   }
+  if (aud !== "all" && !(p.audience || []).includes(aud)) return false;
   if (fresh !== "all") {
     const h = hoursAgo(p);
     if (h === null || h > FRESH.find(f => f[0] === fresh)[1]) return false;
@@ -540,6 +553,7 @@ function rowHtml(p) {
   const misc =
     ((p.category || "internship") !== "internship"
       ? `<span class="lbl season">${esc(p.category)}</span> ` : "")
+    + (p.audience || []).map(a => `<span class="lbl aud">${esc(a)}</span> `).join("")
     + `<span class="lbl role">${esc(p.role)}</span> `
     + `<span class="lbl deg">${degreesOf(p).join("/") || "any degree"}</span> `
     + (p.countries || []).slice(0, 3).map(c => `<span class="lbl country">${esc(c)}</span>`).join(" ") + " "
@@ -582,6 +596,10 @@ function render() {
     .concat(cats.map(c => [c, c + " (" + data.filter(p => (p.category || "internship") === c).length + ")"]))
     .concat(cats.length > 1 ? [["programs", "non-internship"]] : []);
   ctype = fillOpts("f-type", tOpts, tOpts.some(o => o[0] === ctype) ? ctype : "all") || "all";
+  const auds = [...new Set(data.flatMap(p => p.audience || []))].sort();
+  const aOpts = [["all", "all"]].concat(auds.map(a =>
+    [a, a + " (" + data.filter(p => (p.audience || []).includes(a)).length + ")"]));
+  aud = fillOpts("f-aud", aOpts, aOpts.some(o => o[0] === aud) ? aud : "all") || "all";
   fillOpts("f-degree", DEGREES.map(([v, label]) => [v, v === "any" ? "any" : label + " (" + data.filter(p => {
     const dd = degreesOf(p);
     if (v === "grad") return !dd.length || dd.includes("MS") || dd.includes("PhD");
