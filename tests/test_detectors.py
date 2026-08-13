@@ -126,3 +126,26 @@ def test_opportunity_list_keeps_nonintern_titles():
     assert d.category == "program"
     assert d.season == "Summer 2026"
     assert d.payload["opportunity_type"] is None or True
+
+
+def test_markdown_list_parses_sections():
+    from intake.detectors.markdown_lists import MarkdownListDetector
+
+    md = """
+## Internships
+| Name | Status/Open Date | Year | Note |
+| ---- | ---------------- | ---- | ---- |
+| [Dropbox SWE intern](https://gem.com/f/1) | Open | Sophomore | Express interest |
+| Rockwell Pathways | ? | Freshman | no link row |
+| [Closed Thing](https://x.co/2) | Closed | Freshman | |
+## Winternships
+| Name | Status/Open Date | Year | Note |
+| ---- | ---------------- | ---- | ---- |
+| [Jane Street Winternship](https://janestreet.com/w) | Open | Freshman | |
+"""
+    dets = MarkdownListDetector([]).parse(md)
+    assert len(dets) == 2  # linkless and closed rows skipped
+    assert dets[0].title == "Dropbox SWE intern"
+    assert dets[0].category == "internship"
+    assert dets[0].audience == ["underclassmen"]
+    assert dets[1].season == "Winter"

@@ -66,3 +66,7 @@ browser:
 # Curated non-internship lists (programs, scholarships, research)
 opportunity_lists:
   - https://raw.githubusercontent.com/Jose-Gael-Cruz-Lopez/underclassmen-opportunities/main/.github/scripts/listings.json
+
+# Curated README-table lists (zapply style)
+markdown_lists:
+  - https://raw.githubusercontent.com/zapplyjobs/underclassmen-internships/main/README.md

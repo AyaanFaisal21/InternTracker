@@ -35,6 +35,7 @@ class Watchlist(BaseModel):
     browser: list[str] = Field(default_factory=list)  # keys of BROWSER_DETECTORS
     github_lists: list[str] = Field(default_factory=list)  # raw listings.json URLs
     opportunity_lists: list[str] = Field(default_factory=list)  # underclassmen-style listings.json
+    markdown_lists: list[str] = Field(default_factory=list)     # zapply-style README tables
 
 
 class Settings(BaseModel):

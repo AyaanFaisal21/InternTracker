@@ -28,6 +28,7 @@ from .detectors import (
     GithubListDetector,
     GreenhouseDetector,
     LeverDetector,
+    MarkdownListDetector,
     OpportunityListDetector,
     SuggestionDetector,
     WorkdayDetector,
@@ -77,6 +78,7 @@ class Pipeline:
             *[BROWSER_DETECTORS[name]() for name in wl.browser if name in BROWSER_DETECTORS],
             GithubListDetector(wl.github_lists, max_age_days=settings.list_max_age_days),
             OpportunityListDetector(wl.opportunity_lists),
+            MarkdownListDetector(wl.markdown_lists),
         ]
         self.verifier = verifier or VerifierAgent(settings)
         self.publisher = publisher
