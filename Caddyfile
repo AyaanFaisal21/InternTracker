@@ -1,0 +1,6 @@
+# DOMAIN set  -> serves https://DOMAIN with automatic Let's Encrypt certs
+# DOMAIN unset -> plain http on :80 (IP access) until a domain exists
+{$DOMAIN::80} {
+	encode gzip
+	reverse_proxy web:8642
+}

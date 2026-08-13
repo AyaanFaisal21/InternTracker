@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -655,6 +656,32 @@ load(); setInterval(load, 30000);
 """
 
 
+class RateLimiter:
+    """Sliding-window per-key limiter. In-process is enough: one web
+    container, and the goal is abuse resistance, not precision."""
+
+    def __init__(self, limit: int, window_s: float):
+        self.limit = limit
+        self.window_s = window_s
+        self._hits: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            hits = [t for t in self._hits.get(key, []) if now - t < self.window_s]
+            if len(hits) >= self.limit:
+                self._hits[key] = hits
+                return False
+            hits.append(now)
+            self._hits[key] = hits
+            return True
+
+
+SUGGEST_LIMIT = RateLimiter(limit=5, window_s=60.0)
+VISIT_LIMIT = RateLimiter(limit=30, window_s=60.0)
+
+
 def make_handler(db_path: Path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -678,14 +705,21 @@ def make_handler(db_path: Path):
             else:
                 self._send(404, b"not found", "text/plain")
 
+        def _client_ip(self) -> str:
+            fwd = self.headers.get("X-Forwarded-For", "")
+            return fwd.split(",")[0].strip() if fwd else self.client_address[0]
+
         def do_POST(self):
             if self.path == "/api/suggest":
+                if not SUGGEST_LIMIT.allow(self._client_ip()):
+                    self._send(429, b"slow down", "text/plain")
+                    return
                 body = self._json_body()
                 if body is None:
                     return
                 kind = body.get("kind", "company")
                 value = str(body.get("value", "")).strip()
-                if kind not in ("url", "company") or not value:
+                if kind not in ("url", "company") or not value or len(value) > 500:
                     self._send(400, b"bad request", "text/plain")
                     return
                 store = Store(db_path)
@@ -696,6 +730,9 @@ def make_handler(db_path: Path):
                 )
                 self._send(200, json.dumps({"id": sid}).encode(), "application/json")
             elif self.path == "/api/visit":
+                if not VISIT_LIMIT.allow(self._client_ip()):
+                    self._send(429, b"slow down", "text/plain")
+                    return
                 body = self._json_body()
                 if body is None:
                     return
