@@ -110,6 +110,12 @@ class OpportunityListDetector:
                         url=e.get("url", ""),
                         locations=e.get("locations", []),
                         category=(e.get("category") or "program").lower(),
+                        audience=(
+                            ["underclassmen"]
+                            if any("fresh" in str(y).lower() or "soph" in str(y).lower()
+                                   for y in e.get("target_year") or [])
+                            else []
+                        ),
                         season=parse_season(e.get("season") or ""),
                         date_posted=datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None,
                         payload={

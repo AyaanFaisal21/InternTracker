@@ -17,6 +17,7 @@ import httpx
 from ..dates import parse_season
 from ..degrees import classify, extract_qualifications, strip_tags, workday_detail_text
 from ..normalize import resolve_canonical, strip_tracking
+from ..triage import audience_tags, refine_category
 from ..schema import DegreeLevel, Posting, Source
 
 DISQUALIFYING_RE = re.compile(
@@ -77,6 +78,8 @@ def run_rules(p: Posting, client: httpx.Client) -> GateResult:
     if Source.WORKDAY in p.sources:
         page_text = workday_detail_text(canonical or p.url, client) or page_text
     text = strip_tags(page_text)
+    p.category = refine_category(p.category, p.title, canonical or p.url)
+    p.audience = sorted(set(p.audience) | set(audience_tags(p.title, text[:4000])))
     return GateResult(
         canonical_url=canonical,
         degree_levels=classify(p.title, text),

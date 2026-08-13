@@ -49,7 +49,8 @@ class RawDetection(BaseModel):
     title: str
     url: str
     locations: list[str] = Field(default_factory=list)
-    category: str = "internship"         # internship | program | scholarship | research
+    category: str = "internship"         # internship | program | scholarship | research | event
+    audience: list[str] = Field(default_factory=list)  # underclassmen | diversity
     season: str | None = None            # when the source states one
     date_posted: datetime | None = None  # from the source payload when it carries one
     date_posted_text: str | None = None  # raw phrasing when no parseable date
@@ -92,6 +93,7 @@ class Posting(BaseModel):
     url: str                          # as detected
     canonical_url: str | None = None  # resolved employer page; publish this, never url
     category: str = "internship"
+    audience: list[str] = Field(default_factory=list)
     degree_levels: list[DegreeLevel] = Field(default_factory=list)
     # Heuristic (rule gate). verdict.degree_levels, when present, overrides.
     locations: list[str] = Field(default_factory=list)
@@ -114,6 +116,7 @@ class Posting(BaseModel):
             url=d.url,
             locations=d.locations,
             category=d.category,
+            audience=d.audience,
             season=d.season,
             sources=[d.source],
             date_posted=d.date_posted,
