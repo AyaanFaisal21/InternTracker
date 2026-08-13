@@ -1,6 +1,6 @@
-# DOMAIN set  -> serves https://DOMAIN with automatic Let's Encrypt certs
-# DOMAIN unset -> plain http on :80 (IP access) until a domain exists
-{$DOMAIN::80} {
+# DOMAIN env: a hostname enables automatic HTTPS via Let's Encrypt;
+# the compose default of :80 serves plain http for bare-IP access.
+{$DOMAIN} {
 	encode gzip
 	reverse_proxy web:8642
 }
