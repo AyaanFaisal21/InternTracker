@@ -8,12 +8,25 @@ parameters (job ids like ashby_jid, lever posting ids) are kept.
 
 from __future__ import annotations
 
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 import httpx
 
 # Exact-match query keys to drop. Prefix match handles utm_*.
 TRACKING_KEYS = {"ref", "referrer", "source", "src", "gh_src", "gclid", "fbclid", "lever-source"}
+
+# Social redirector hosts wrap the real URL in a query param. Postings and
+# events shared on Instagram/Facebook arrive like this.
+REDIRECTOR_HOSTS = {"l.instagram.com", "l.facebook.com", "lm.facebook.com", "l.messenger.com"}
+
+
+def unwrap_redirector(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.netloc.lower() in REDIRECTOR_HOSTS:
+        for k, v in parse_qsl(parts.query):
+            if k == "u" and v.startswith("http"):
+                return unquote(v)
+    return url
 
 
 def strip_tracking(url: str) -> str:
@@ -36,6 +49,7 @@ def resolve_canonical(
     """
     if not url.startswith("http"):
         return "malformed url", None, ""
+    url = unwrap_redirector(url)
     try:
         resp = client.get(url, follow_redirects=True, timeout=15.0)
     except httpx.HTTPError as e:

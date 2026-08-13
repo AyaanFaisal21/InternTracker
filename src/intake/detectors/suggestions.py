@@ -19,6 +19,7 @@ import re
 
 import httpx
 
+from ..normalize import unwrap_redirector
 from ..schema import RawDetection, Source
 from ..store import Store
 from .base import INTERN_RE, looks_like_swe_internship
@@ -84,7 +85,7 @@ class SuggestionDetector:
         return out
 
     def _process_url(self, sug: dict) -> tuple[list[RawDetection], str, str]:
-        url = sug["value"].strip()
+        url = unwrap_redirector(sug["value"].strip())
         try:
             resp = self.client.get(url)
         except httpx.HTTPError as e:

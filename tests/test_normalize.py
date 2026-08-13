@@ -34,3 +34,12 @@ def test_resolve_rejects_dead_link():
         "https://acme.com/gone", _client(lambda r: httpx.Response(404))
     )
     assert reason == "url returned 404" and canonical is None and text == ""
+
+
+def test_unwrap_instagram_redirector():
+    from intake.normalize import unwrap_redirector
+
+    wrapped = ("https://l.instagram.com/?u=https%3A%2F%2Fstemgateway.nasa.gov%2Fs"
+               "%2Fcourse-offering%2Fabc%3Ffbclid%3DXYZ&e=AUD123")
+    assert unwrap_redirector(wrapped).startswith("https://stemgateway.nasa.gov/s/course-offering/abc")
+    assert unwrap_redirector("https://acme.com/jobs/1") == "https://acme.com/jobs/1"
