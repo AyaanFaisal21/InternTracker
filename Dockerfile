@@ -15,6 +15,7 @@ COPY config ./config
 RUN pip install --no-cache-dir .
 
 FROM base AS web
+ENV INTAKE_BIND=0.0.0.0
 EXPOSE 8642
 CMD ["intake", "serve", "-p", "8642"]
 

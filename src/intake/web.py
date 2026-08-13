@@ -731,11 +731,20 @@ class V6Server(ThreadingHTTPServer):
 
 
 def serve(db_path: Path, port: int = 8000):
-    """Listen on both loopback families. Browsers resolve `localhost` to ::1
-    on many systems; an IPv4-only bind looks like the site is down."""
+    """Local default: both loopback families (browsers resolve localhost to
+    ::1 on some systems; an IPv4-only bind looks down). In a container set
+    INTAKE_BIND=0.0.0.0 — Docker's port mapping connects to the container's
+    ethernet interface, which a loopback-only bind never hears."""
+    import os
+
     handler = make_handler(db_path)
+    bind = os.environ.get("INTAKE_BIND")
+    targets = (
+        [(ThreadingHTTPServer, bind)] if bind
+        else [(ThreadingHTTPServer, "127.0.0.1"), (V6Server, "::1")]
+    )
     servers = []
-    for cls, host in ((ThreadingHTTPServer, "127.0.0.1"), (V6Server, "::1")):
+    for cls, host in targets:
         try:
             servers.append(cls((host, port), handler))
         except OSError:
