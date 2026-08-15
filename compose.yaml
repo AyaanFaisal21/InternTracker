@@ -16,6 +16,9 @@ services:
       - "${WEB_PORT:-8642}:8642"
     volumes:
       - data:/data
+    environment:
+      # set -> postgres store; empty -> sqlite on the shared volume
+      - DATABASE_URL=${SUPABASE_URL_POSTGRES:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c",
@@ -33,6 +36,7 @@ services:
       - data:/data
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DATABASE_URL=${SUPABASE_URL_POSTGRES:-}
     restart: unless-stopped
 
   caddy:

@@ -12,7 +12,8 @@ ENV PYTHONUNBUFFERED=1 \
 COPY pyproject.toml ./
 COPY src ./src
 COPY config ./config
-RUN pip install --no-cache-dir .
+COPY scripts ./scripts
+RUN pip install --no-cache-dir ".[postgres]"
 
 FROM base AS web
 ENV INTAKE_BIND=0.0.0.0
