@@ -34,7 +34,7 @@ from .detectors import (
     WorkdayDetector,
 )
 from .schema import Posting, Status
-from .store import Store
+from .store import Store, open_store
 from .verify import VerifierAgent, run_rules
 
 log = logging.getLogger("intake")
@@ -66,7 +66,7 @@ class Pipeline:
         publisher: Callable[[Posting], None] = default_publisher,
     ):
         self.settings = settings
-        self.store = store or Store(settings.db_path)
+        self.store = store or open_store(settings.db_path)
         wl = settings.watchlist
         self.detectors: list[Detector] = detectors or [
             SuggestionDetector(self.store),

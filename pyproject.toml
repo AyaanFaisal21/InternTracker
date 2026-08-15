@@ -13,6 +13,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 browser = ["playwright"]
+postgres = ["psycopg[binary]>=3.2"]
 
 [project.scripts]
 intake = "intake.cli:main"

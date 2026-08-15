@@ -26,7 +26,7 @@ from pathlib import Path
 
 from .locations import countries_of
 from .roles import classify_role
-from .store import Store
+from .store import open_store
 
 BASE_CSS = """
   * { box-sizing: border-box; }
@@ -690,7 +690,7 @@ def make_handler(db_path: Path):
             elif self.path.split("?")[0] == "/listings":
                 self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             elif self.path.startswith("/api/postings"):
-                store = Store(db_path)  # per-request connection: thread-safe
+                store = open_store(db_path)  # sqlite: per-request; postgres: shared
                 rows = []
                 for p in store.all_postings():
                     d = p.model_dump(mode="json")
@@ -700,7 +700,7 @@ def make_handler(db_path: Path):
                 body = json.dumps(rows).encode()
                 self._send(200, body, "application/json")
             elif self.path.startswith("/api/suggestions"):
-                store = Store(db_path)
+                store = open_store(db_path)
                 self._send(200, json.dumps(store.recent_suggestions()).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
@@ -722,7 +722,7 @@ def make_handler(db_path: Path):
                 if kind not in ("url", "company") or not value or len(value) > 500:
                     self._send(400, b"bad request", "text/plain")
                     return
-                store = Store(db_path)
+                store = open_store(db_path)
                 sid = store.add_suggestion(
                     kind, value,
                     company=body.get("company") or None,
@@ -737,7 +737,7 @@ def make_handler(db_path: Path):
                 if body is None:
                     return
                 page = str(body.get("page", "unknown"))[:40]
-                Store(db_path).record_visit(page, self.headers.get("User-Agent", "")[:200])
+                open_store(db_path).record_visit(page, self.headers.get("User-Agent", "")[:200])
                 self._send(200, b"{}", "application/json")
             else:
                 self._send(404, b"not found", "text/plain")

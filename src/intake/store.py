@@ -7,10 +7,34 @@ sources/locations instead of creating a new record, so re-polls are idempotent.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import threading
 from pathlib import Path
 
 from .schema import Posting, RawDetection, Source, Status
+
+_pg_store = None
+_pg_lock = threading.Lock()
+
+
+def open_store(db_path: Path | str):
+    """Store factory. DATABASE_URL set -> Postgres; unset -> SQLite.
+
+    SQLite returns a fresh connection each call — the cheap per-request
+    pattern the threaded web handlers rely on. Postgres returns one shared
+    process-wide store because network connections are too expensive to
+    open per request; it locks internally.
+    """
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        return Store(db_path)
+    global _pg_store
+    with _pg_lock:
+        if _pg_store is None or _pg_store.url != url:
+            from .store_postgres import PostgresStore
+            _pg_store = PostgresStore(url)
+        return _pg_store
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS postings (
