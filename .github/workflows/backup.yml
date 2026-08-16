@@ -1,0 +1,42 @@
+# Nightly offsite database backup. Dumps the Supabase Postgres, encrypts
+# the dump, and stores it as a workflow artifact for 90 days.
+#
+# Needs two repository secrets:
+#   DATABASE_URL       the session-pooler connection string
+#   BACKUP_PASSPHRASE  any long random string; losing it makes backups useless
+#
+# Restore:
+#   gpg -d --batch --passphrase "$BACKUP_PASSPHRASE" shortlist.dump.gpg > shortlist.dump
+#   pg_restore -d "$DATABASE_URL" --clean --if-exists shortlist.dump
+
+name: backup
+on:
+  schedule:
+    - cron: "0 9 * * *"   # daily, 09:00 UTC
+  workflow_dispatch:       # manual run button for testing
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: install postgres 17 client
+        # ubuntu-latest ships client 16; pg_dump must be >= the server (17)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -yq postgresql-client-17
+      - name: dump and encrypt
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          pg_dump "$DATABASE_URL" -Fc -f shortlist.dump
+          gpg --batch --symmetric --cipher-algo AES256 \
+              --passphrase "$BACKUP_PASSPHRASE" shortlist.dump
+          rm shortlist.dump
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: shortlist.dump.gpg
+          retention-days: 90
