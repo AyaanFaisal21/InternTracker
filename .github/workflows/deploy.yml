@@ -15,11 +15,26 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
+  frontend:
+    # tsc + vite build; catches type errors and broken imports before deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
   deploy:
     # push to main only; the ssh key is a forced-command key that can run
     # exactly one thing on the box: scripts/deploy.sh
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
+    needs: [test, frontend]
     runs-on: ubuntu-latest
     concurrency: prod-deploy
     steps:
