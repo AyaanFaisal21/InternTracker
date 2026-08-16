@@ -1,0 +1,20 @@
+/* "/practice" skeleton: intro plus numbered coming-soon zones on the light
+   shell. Scoped under .page-practice. */
+
+.page-practice .phead { padding: 58px 0 36px; max-width: 780px; }
+.page-practice h1 { font: 400 clamp(2.1rem, 4.5vw, 3rem)/1.12 Georgia, "Times New Roman", serif;
+                    margin: 18px 0; }
+.page-practice .lede { margin: 0; font: 400 17px/1.65 Georgia, "Times New Roman", serif; }
+
+.page-practice .zone { border-top: 1px solid var(--rule); padding: 22px 0 30px; max-width: 780px; }
+.page-practice .zone:last-of-type { margin-bottom: 64px; }
+.page-practice .zone-head { display: flex; align-items: baseline; gap: 16px; }
+.page-practice .zone-no { font: 400 15px Georgia, "Times New Roman", serif; color: var(--scarlet); }
+.page-practice .zone-head h2 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: 0.01em; }
+.page-practice .soon { margin-left: auto; font-size: 11px; letter-spacing: 0.14em;
+                       text-transform: uppercase; color: var(--ink-soft);
+                       border: 1px solid var(--rule); border-radius: 2px; padding: 3px 10px; }
+.page-practice .zone-frame { margin-top: 14px; min-height: 84px; display: flex; align-items: center;
+                             border: 1px dashed rgba(109, 26, 26, 0.4); background: var(--paper-deep);
+                             padding: 20px 22px; color: var(--ink-soft); font-size: 13.5px;
+                             line-height: 1.6; }

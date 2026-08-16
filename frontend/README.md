@@ -1,8 +1,8 @@
 # frontend
 
-React port of the intake dashboard. Replaces the HTML that lives as strings in `src/intake/web.py`.
+React app for Shortlist. Started as a port of the HTML that lives as strings in `src/intake/web.py`; the light pages have since diverged from it.
 
-Two routes. `/` is the org profile. `/listings` is the board. Look and behavior match the Python pages.
+Three routes. `/` is the landing page. `/listings` is the board. `/practice` is a skeleton for the interview practice tool.
 
 ## Stack
 
