@@ -25,9 +25,11 @@ class GithubListDetector:
         max_age_days: int = 14,
         client: httpx.Client | None = None,
     ):
-        """max_age_days bounds the backstop to recent postings. The goal is
-        novelty detection, not archiving — old entries would flood the rule
-        gate with thousands of URL resolutions on the first run."""
+        """max_age_days=0 disables the age cutoff. Production runs with 0
+        (Settings.list_max_age_days): an active posting is applyable at any
+        age, and lists backfill old dates. A nonzero bound is the lever for
+        capping first-run cost, when thousands of old entries would hit the
+        rule gate with URL resolutions at once."""
         self.listing_urls = listing_urls
         self.max_age_days = max_age_days
         self.client = client or httpx.Client(timeout=30.0, follow_redirects=True)
