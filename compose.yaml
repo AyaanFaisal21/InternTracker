@@ -1,4 +1,4 @@
-# RUemployed: poller (detection loop) + web (dashboard) over one SQLite
+# Shortlist: poller (detection loop) + web (dashboard) over one SQLite
 # volume. WAL mode makes the two-process sharing safe on a single host.
 #
 #   docker compose up -d --build

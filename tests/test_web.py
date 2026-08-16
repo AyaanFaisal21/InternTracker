@@ -54,7 +54,7 @@ def test_dashboard_serves_html_and_json(tmp_path):
                 import time
                 time.sleep(0.05)
         assert html is not None, "server never came up"
-        assert html.status_code == 200 and "RUemployed" in html.text
+        assert html.status_code == 200 and "Shortlist" in html.text
 
         board = httpx.get(f"{base}/listings")
         assert board.status_code == 200 and "Want to contribute" in board.text

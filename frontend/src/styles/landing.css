@@ -1,5 +1,7 @@
 /* Landing page styles from web.py LANDING, scoped under .page-landing so the
-   two pages' class names (e.g. .rail) cannot collide in one SPA bundle. */
+   two pages' class names (e.g. .rail) cannot collide in one SPA bundle.
+   .mission is React-only: it styles the rail card that replaced the People
+   grid. */
 
 .page-landing .tabs { border-bottom:1px solid #2a2a2a; display:flex; gap:4px; padding:0 24px; }
 .page-landing .tabs .tab { padding:9px 12px 11px; color:#e6edf3; font-size:14px; border-bottom:2px solid transparent;
@@ -53,11 +55,8 @@
 .page-landing .spark polyline { fill:none; stroke:#f85149aa; stroke-width:1.6; }
 .page-landing .railsec { margin-bottom:28px; }
 .page-landing .railhead { font-size:15px; font-weight:600; margin-bottom:12px; }
-.page-landing .people { display:grid; grid-template-columns:repeat(6, 1fr); gap:8px; }
-.page-landing .person { aspect-ratio:1; border-radius:8px; background:#1e1e1e; border:1px solid #363636;
-                        display:flex; align-items:center; justify-content:center; font-size:12px;
-                        font-weight:700; color:#c9d1d9; }
-.page-landing .viewall { font-size:13px; margin-top:10px; display:inline-block; }
+.page-landing .mission { border:1px solid #363636; border-radius:8px; background:#161616;
+                         padding:12px 14px; color:#8b949e; font-size:13px; line-height:1.55; }
 .page-landing .langrow { display:flex; gap:8px; align-items:center; color:#c9d1d9; font-size:13.5px;
                          margin-bottom:6px; }
 .page-landing .topics { display:flex; flex-wrap:wrap; gap:7px; }

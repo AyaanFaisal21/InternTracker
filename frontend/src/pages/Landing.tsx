@@ -1,4 +1,6 @@
 // Port of the "/" org-profile landing page from web.py (LANDING).
+// One divergence from the Python page: the People rail is replaced by a
+// Shortlist mission card.
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -105,13 +107,6 @@ function sparkPoints(rows: Posting[]): string {
     .join(" ");
 }
 
-/** Stable hue for a company name; drives the People grid colors. */
-function hue(s: string): number {
-  let h = 0;
-  for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return h;
-}
-
 export default function Landing() {
   const [data, setData] = useState<Posting[] | null>(null);
   const [findQ, setFindQ] = useState("");
@@ -120,7 +115,7 @@ export default function Landing() {
 
   useEffect(() => {
     const ctrl = new AbortController();
-    document.title = "RUemployed";
+    document.title = "Shortlist";
     recordVisit("landing");
     fetchPostings(ctrl.signal)
       .then(setData)
@@ -132,7 +127,7 @@ export default function Landing() {
 
   // Aggregates depend on `data` alone; memoized so typing in the repo-find
   // box does not rebuild them on every keystroke.
-  const { open, cycle27, events, people, topics } = useMemo(() => {
+  const { open, cycle27, events, topics } = useMemo(() => {
     const open = (data ?? []).filter(isOpen);
     const cycle27 = open.filter((p) => {
       const s = seasonOf(p);
@@ -140,19 +135,11 @@ export default function Landing() {
     });
     const events = open.filter((p) => p.category === "event");
 
-    const byCompany = new Map<string, number>();
-    open.forEach((p) =>
-      byCompany.set(p.company, (byCompany.get(p.company) ?? 0) + 1),
-    );
-    const people = [...byCompany.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 12);
-
     const byRole = new Map<string, number>();
     open.forEach((p) => byRole.set(p.role, (byRole.get(p.role) ?? 0) + 1));
     const topics = [...byRole.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
 
-    return { open, cycle27, events, people, topics };
+    return { open, cycle27, events, topics };
   }, [data]);
 
   const eventsLive = events.length > 0;
@@ -174,14 +161,14 @@ export default function Landing() {
       </div>
       <div className="wrap">
         <div className="profile">
-          <div className="avatar"><span>RU</span></div>
+          <div className="avatar"><span>SL</span></div>
           <div>
-            <div className="pname"><span style={{ color: "#f85149" }}>RU</span>employed</div>
+            <div className="pname"><span style={{ color: "#f85149" }}>Short</span>list</div>
             <span className="verified">Verified</span>
             <div className="pmeta">
               <span>👥 <b>{show(open.length)}</b> postings tracked</span>
               <span>📍 New Brunswick, NJ</span>
-              <span>🔗 <Link to={ALL_LISTINGS}>ruemployed/listings</Link></span>
+              <span>🔗 <Link to={ALL_LISTINGS}>shortlist/listings</Link></span>
             </div>
           </div>
           <button className="notif" onClick={() => setNotif("coming soon")}>
@@ -294,31 +281,13 @@ export default function Landing() {
           </div>
           <div className="rail">
             <div className="railsec">
-              <div className="railhead">People</div>
-              <div className="people">
-                {people.map(([co]) => {
-                  const init = co
-                    .split(/\s+/)
-                    .map((w) => w[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase();
-                  return (
-                    <div
-                      key={co}
-                      className="person"
-                      title={co}
-                      style={{
-                        borderColor: `hsl(${hue(co)} 40% 35%)`,
-                        color: `hsl(${hue(co)} 60% 75%)`,
-                      }}
-                    >
-                      {init}
-                    </div>
-                  );
-                })}
+              <div className="railhead">Mission</div>
+              <div className="mission">
+                Reaching the shortlist in SWE recruiting means applying early.
+                Shortlist aggregates all your favorite CS repos, sites, and
+                direct job boards. It covers every posting that can be covered
+                autonomously. Be sure to check frequently.
               </div>
-              <Link className="viewall" to={ALL_LISTINGS}>View all</Link>
             </div>
             <div className="railsec">
               <div className="railhead">Top languages</div>

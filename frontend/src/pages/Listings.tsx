@@ -201,7 +201,7 @@ export default function Listings() {
   const [sugmsg, setSugmsg] = useState("");
 
   useEffect(() => {
-    document.title = "RUemployed · Listings";
+    document.title = "Shortlist · Listings";
     recordVisit("listings:" + (repo || "all"));
   }, []);
 

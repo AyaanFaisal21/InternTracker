@@ -48,20 +48,20 @@ BASE_CSS = """
 
 TOPBAR_HOME = """<div class="topbar">
   <span class="burger">&#9776;</span>
-  <a class="brand" href="/"><span class="ru">RU</span>employed</a>
+  <a class="brand" href="/"><span class="ru">Short</span>list</a>
   <input class="topsearch" placeholder="Type / to search" disabled>
 </div>"""
 
 TOPBAR_LISTINGS = """<div class="topbar">
   <span class="burger">&#9776;</span>
-  <span class="brand"><a class="brand" href="/"><span class="ru">RU</span>employed</a>
+  <span class="brand"><a class="brand" href="/"><span class="ru">Short</span>list</a>
     <span class="crumb"> &middot; <a href="/listings" id="crumbname">Listings</a></span></span>
   <input class="topsearch" placeholder="Type / to search" disabled>
 </div>"""
 
 LANDING = """<!doctype html>
 <meta charset="utf-8">
-<title>RUemployed</title>
+<title>Shortlist</title>
 <style>""" + BASE_CSS + """
   .tabs { border-bottom:1px solid #2a2a2a; display:flex; gap:4px; padding:0 24px; }
   .tabs .tab { padding:9px 12px 11px; color:#e6edf3; font-size:14px; border-bottom:2px solid transparent;
@@ -134,14 +134,14 @@ LANDING = """<!doctype html>
 </div>
 <div class="wrap">
   <div class="profile">
-    <div class="avatar"><span>RU</span></div>
+    <div class="avatar"><span>SL</span></div>
     <div>
-      <div class="pname"><span style="color:#f85149">RU</span>employed</div>
+      <div class="pname"><span style="color:#f85149">Short</span>list</div>
       <span class="verified">Verified</span>
       <div class="pmeta">
         <span>&#128101; <b id="followers">&hellip;</b> postings tracked</span>
         <span>&#128205; New Brunswick, NJ</span>
-        <span>&#128279; <a href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">ruemployed/listings</a></span>
+        <span>&#128279; <a href="/listings?repo=All+Listings&amp;degree=any&amp;country=all">shortlist/listings</a></span>
       </div>
     </div>
     <button class="notif" onclick="this.textContent='coming soon'">Notification settings</button>
@@ -326,7 +326,7 @@ fetch("/api/postings").then(r => r.json()).then(d => {
 
 PAGE = """<!doctype html>
 <meta charset="utf-8">
-<title>RUemployed &middot; Listings</title>
+<title>Shortlist &middot; Listings</title>
 <style>""" + BASE_CSS + """
   .layout { display:flex; gap:16px; max-width:1400px; margin:0 auto; padding:18px 20px 18px 8px; }
   .sidebar { width:34px; flex-shrink:0; display:flex; flex-direction:column;
@@ -770,7 +770,7 @@ class V6Server(ThreadingHTTPServer):
 def serve(db_path: Path, port: int = 8000):
     """Local default: both loopback families (browsers resolve localhost to
     ::1 on some systems; an IPv4-only bind looks down). In a container set
-    INTAKE_BIND=0.0.0.0 — Docker's port mapping connects to the container's
+    INTAKE_BIND=0.0.0.0: Docker's port mapping connects to the container's
     ethernet interface, which a loopback-only bind never hears."""
     import os
 

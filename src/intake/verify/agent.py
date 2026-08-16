@@ -2,7 +2,7 @@
 
 Method: fetch the posting page, strip it to text, and ask Claude for a
 structured verdict against the detection metadata. The verdict schema is
-enforced by the API (structured outputs) — no free-text parsing.
+enforced by the API (structured outputs), so there is no free-text parsing.
 
 The agent decides what rules cannot: whether the page actually describes an
 open, legitimate SWE internship, or a closed/ghost/mislabeled posting that
@@ -49,7 +49,7 @@ class VerifierAgent:
         self.http = httpx.Client(
             timeout=settings.page_fetch_timeout,
             follow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (RUemployed intake verifier)"},
+            headers={"User-Agent": "Mozilla/5.0 (Shortlist intake verifier)"},
         )
 
     def fetch_page_text(self, url: str) -> str:
@@ -72,7 +72,7 @@ class VerifierAgent:
             f"- url: {target}\n"
             f"- locations: {', '.join(p.locations) or 'unknown'}\n"
             f"- sources: {', '.join(s.value for s in p.sources)}\n\n"
-            f"Posting page text (empty means the fetch failed — judge from "
+            f"Posting page text (empty means the fetch failed; judge from "
             f"metadata alone and lower confidence):\n{page_text or '(fetch failed)'}"
         )
         response = self.client.messages.parse(

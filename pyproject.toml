@@ -1,5 +1,5 @@
 [project]
-name = "ruemployed-intake"
+name = "shortlist-intake"
 version = "0.1.0"
 description = "Multi-source SWE internship posting intake engine with verification gate"
 requires-python = ">=3.11"

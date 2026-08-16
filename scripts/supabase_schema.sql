@@ -1,4 +1,4 @@
--- RUemployed schema for Supabase Postgres.
+-- Shortlist schema for Supabase Postgres.
 -- Paste into Supabase Dashboard -> SQL Editor -> New query -> Run.
 -- Mirrors the SQLite schema in src/intake/store.py with native types.
 -- Safe to re-run (idempotent).

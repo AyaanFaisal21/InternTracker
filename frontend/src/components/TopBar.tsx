@@ -11,12 +11,12 @@ export default function TopBar({ crumb }: { crumb?: string }) {
       <span className="burger">☰</span>
       {crumb === undefined ? (
         <Link className="brand" to="/">
-          <span className="ru">RU</span>employed
+          <span className="ru">Short</span>list
         </Link>
       ) : (
         <span className="brand">
           <Link className="brand" to="/">
-            <span className="ru">RU</span>employed
+            <span className="ru">Short</span>list
           </Link>{" "}
           <span className="crumb">
             {" · "}

@@ -1,8 +1,8 @@
 # Multi-stage: `web` is slim (stdlib server only); `poller` adds headless
 # Chromium for the browser detector tier.
 #
-#   docker build --target web    -t ruemployed-web .
-#   docker build --target poller -t ruemployed-poller .
+#   docker build --target web    -t shortlist-web .
+#   docker build --target poller -t shortlist-poller .
 
 FROM python:3.13-slim AS base
 WORKDIR /app
