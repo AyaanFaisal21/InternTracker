@@ -1,0 +1,37 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  deploy:
+    # push to main only; the ssh key is a forced-command key that can run
+    # exactly one thing on the box: scripts/deploy.sh
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency: prod-deploy
+    steps:
+      - name: deploy over ssh
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          # pinned host key; public information, safe in the repo
+          # (refresh via: ssh-keyscan -t ed25519 3.131.151.120)
+          HOST_KEY: "3.131.151.120 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIQMhxC/3Nlq982Ld4nXR5BuxccWNmsGt3c4ubXRLXWA"
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$HOST_KEY" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key ubuntu@3.131.151.120 deploy
