@@ -14,11 +14,11 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from ..dates import parse_season
+from ..dates import resolve_season
 from ..degrees import classify, extract_qualifications, strip_tags, workday_detail_text
 from ..normalize import resolve_canonical, strip_tracking
 from ..triage import audience_tags, refine_category
-from ..schema import DegreeLevel, Posting, Source
+from ..schema import DegreeLevel, Posting
 
 DISQUALIFYING_RE = re.compile(
     r"unpaid|ambassador|brand rep|commission[- ]only|volunteer", re.IGNORECASE
@@ -75,8 +75,10 @@ def run_rules(p: Posting, client: httpx.Client) -> GateResult:
         canonical, page_text, reason = strip_tracking(p.url), "", None
     if reason:
         return GateResult(reject_reason=reason)
-    if Source.WORKDAY in p.sources:
-        page_text = workday_detail_text(canonical or p.url, client) or page_text
+    # Workday pages are JS shells; real text lives on the CXS detail
+    # endpoint. Keyed on URL shape, not source: Workday links also arrive
+    # via lists and suggestions. No-op for every other URL.
+    page_text = workday_detail_text(canonical or p.url, client) or page_text
     text = strip_tags(page_text)
     p.category = refine_category(p.category, p.title, canonical or p.url)
     p.audience = sorted(set(p.audience) | set(audience_tags(p.title, text[:4000])))
@@ -84,5 +86,5 @@ def run_rules(p: Posting, client: httpx.Client) -> GateResult:
         canonical_url=canonical,
         degree_levels=classify(p.title, text),
         qualifications=extract_qualifications(text),
-        season=parse_season(p.title) or parse_season(text[:4000]),
+        season=resolve_season(p.title, text[:4000]),
     )

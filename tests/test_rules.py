@@ -42,6 +42,39 @@ def test_run_rules_workday_uses_cxs_detail(tmp_path):
     assert g.reject_reason is None and g.degree_levels == ["PhD"]
 
 
+def test_run_rules_list_sourced_workday_url_uses_cxs_detail(tmp_path):
+    # Snap R0046464 regression: the Workday link arrived via a list, not
+    # the workday detector, so a source check never fetched detail text
+    # and the PhD requirement was invisible to the classifier.
+    p = make_posting(
+        tmp_path, source=Source.GITHUB_LIST, company="Snap",
+        title="Research Intern, User Modeling and Personalization",
+        url=("https://wd1.myworkdaysite.com/recruiting/snapchat/snap/job/"
+             "Bellevue-Washington/Research-Intern--User-Modeling-and-Personalization_R0046464-1"),
+    )
+    client = fixture_client({
+        "myworkdaysite.com/recruiting/": "<html>js shell</html>",
+        "/wday/cxs/snapchat/snap/": {"jobPostingInfo": {"jobDescription":
+            "<p>Currently enrolled in a PhD program in a technical field</p>"}},
+    })
+    g = run_rules(p, client)
+    assert g.reject_reason is None and g.degree_levels == ["PhD"]
+
+
+def test_run_rules_flexible_season_stays_none(tmp_path):
+    # a Summer/Fall title must not take the single season the page states
+    p = make_posting(
+        tmp_path, source=Source.GREENHOUSE, company="Acme",
+        title="Software Engineer Intern (Summer/Fall 2027)",
+        url="https://acme.com/jobs/3",
+    )
+    client = fixture_client(
+        {"acme.com": "<p>The program runs Summer 2027. Pursuing a Bachelor's degree.</p>"}
+    )
+    g = run_rules(p, client)
+    assert g.reject_reason is None and g.season is None
+
+
 def test_run_rules_rejects_bad_title(tmp_path):
     p = make_posting(
         tmp_path, source=Source.GREENHOUSE, company="Acme",

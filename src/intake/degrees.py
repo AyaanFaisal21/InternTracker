@@ -15,11 +15,17 @@ from .schema import DegreeLevel
 
 # Full words match anywhere. The two-letter abbreviations are ambiguous
 # (CSS -ms-flex, "multiple sclerosis (MS)" in EEOC boilerplate), so they
-# are hyphen-guarded AND require degree context nearby.
+# are hyphen-guarded AND require degree context nearby. PhD needs word
+# boundaries: bare ph\s?d matches "graph data". Covers PhD, Ph.D., Ph. D.,
+# PhDs, DPhil, D.Phil, Doctor of Philosophy.
 PATTERNS: dict[DegreeLevel, re.Pattern] = {
     "BS": re.compile(r"bachelor|\bbsc\b|undergrad(?:uate)?", re.IGNORECASE),
     "MS": re.compile(r"master|\bmsc\b|\bmeng\b", re.IGNORECASE),
-    "PhD": re.compile(r"ph\.?\s?d|doctoral|doctorate", re.IGNORECASE),
+    "PhD": re.compile(
+        r"\bph\.?\s?d\.?s?\b|\bd\.?\s?phil\b|doctor of philosophy"
+        r"|doctoral|doctorate",
+        re.IGNORECASE,
+    ),
 }
 ABBREV_PATTERNS: dict[DegreeLevel, re.Pattern] = {
     "BS": re.compile(r"(?<![\w-])b\.?s\.?(?![\w-])", re.IGNORECASE),
@@ -40,7 +46,17 @@ BOILERPLATE_RE = re.compile(
 
 SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
-WORKDAY_URL_RE = re.compile(r"https://([^/]+)/en-US/([^/]+)(/job/.+)$")
+# Two public Workday URL shapes, same CXS detail endpoint on the same host.
+# The locale segment (en-US, fr-FR) is optional in both:
+#   {tenant}.wdN.myworkdayjobs.com/{locale?}/{site}/job/...   tenant in host
+#   wdN.myworkdaysite.com/{locale?}/recruiting/{tenant}/{site}/job/...
+_WD_LOCALE = r"(?:[a-zA-Z]{2}-[a-zA-Z]{2}/)?"
+WORKDAY_JOBS_RE = re.compile(
+    rf"https://([^/]+\.myworkdayjobs\.com)/{_WD_LOCALE}([^/]+)(/job/.+)$"
+)
+WORKDAY_SITE_RE = re.compile(
+    rf"https://(wd\d+\.myworkdaysite\.com)/{_WD_LOCALE}recruiting/([^/]+)/([^/]+)(/job/.+)$"
+)
 
 
 def strip_tags(html: str) -> str:
@@ -85,13 +101,16 @@ def classify(title: str, page_text: str) -> list[DegreeLevel]:
 
 def workday_detail_text(url: str, client: httpx.Client) -> str:
     """Workday job pages are JS shells; the description lives on the CXS
-    detail endpoint. Derive it from the public URL. Empty string on any
-    failure — the heuristic then falls back to title-only."""
-    m = WORKDAY_URL_RE.match(url)
-    if not m:
+    detail endpoint. Derive it from either public URL shape. Empty string
+    on any failure or non-Workday URL; the caller then falls back to the
+    page text it already has."""
+    if m := WORKDAY_JOBS_RE.match(url):
+        host, site, path = m.groups()
+        tenant = host.split(".")[0]
+    elif m := WORKDAY_SITE_RE.match(url):
+        host, tenant, site, path = m.groups()
+    else:
         return ""
-    host, site, path = m.groups()
-    tenant = host.split(".")[0]
     try:
         resp = client.get(f"https://{host}/wday/cxs/{tenant}/{site}{path}", timeout=15.0)
         resp.raise_for_status()

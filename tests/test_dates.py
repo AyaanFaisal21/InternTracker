@@ -32,3 +32,35 @@ def test_parse_season():
     assert parse_season("SWE Intern - Summer '27") == "Summer 2027"
     assert parse_season("PhD Research Intern - 2026") == "2026"
     assert parse_season("Software Engineering Masters Internships") is None
+
+
+def test_multi_season_parses_to_none():
+    from intake.dates import parse_season
+
+    # a single label would hide these from the other seasons' filters
+    assert parse_season("SWE Intern - Summer/Fall 2027") is None
+    assert parse_season("Software Intern (Fall or Winter 2026)") is None
+    assert parse_season("Intern - Winter, Spring, and Summer") is None
+    assert parse_season("Co-op, Fall 2026 / Spring 2027") is None
+
+
+def test_flexible_phrasings_detected():
+    from intake.dates import season_is_flexible
+
+    assert season_is_flexible("flexible start date")
+    assert season_is_flexible("interns join year-round")
+    assert season_is_flexible("we hire on an ongoing basis")
+    assert season_is_flexible("multiple start dates available")
+    assert season_is_flexible("open to all seasons")
+    assert not season_is_flexible("Software Intern (Fall 2026)")
+
+
+def test_resolve_season_flexible_stops_chain():
+    from intake.dates import resolve_season
+
+    # flexible title must not pick a single season out of the page text
+    assert resolve_season("SWE Intern - Summer/Fall 2027", "starts Summer 2027") is None
+    # single-season title stays decisive over flexible page text
+    assert resolve_season("SWE Intern - Fall 2026", "flexible start date") == "Fall 2026"
+    assert resolve_season("SWE Intern", "join us in Spring 2027") == "Spring 2027"
+    assert resolve_season("SWE Intern", "start in fall, winter, or spring") is None
