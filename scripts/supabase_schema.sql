@@ -83,3 +83,22 @@ create policy "public reads published postings"
 --     on suggestions for insert
 --     to anon, authenticated
 --     with check (kind in ('url','company'));
+
+-- Notification subscriptions. The delivery channel (web push vs email) is
+-- undecided: target holds the push endpoint JSON or the email address,
+-- filters narrows fan-out to named companies ('{}' = every company), and
+-- token is the opaque unsubscribe secret the API hands the subscriber.
+create table if not exists subscriptions (
+    id         bigint generated always as identity primary key,
+    channel    text not null check (channel in ('push','email')),
+    target     text not null,
+    filters    jsonb not null default '{}',
+    token      text not null unique,
+    created_at timestamptz not null default now(),
+    active     boolean not null default true
+);
+
+-- RLS on with no policies: targets and tokens must never reach the anon
+-- REST surface. Every subscription read and write flows through our API
+-- server, whose owning role bypasses RLS.
+alter table subscriptions enable row level security;

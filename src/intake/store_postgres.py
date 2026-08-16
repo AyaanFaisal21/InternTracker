@@ -13,6 +13,7 @@ statement, so the retry cannot double-apply.
 from __future__ import annotations
 
 import threading
+import uuid
 
 from .schema import Posting, RawDetection, Source, Status, Verdict
 
@@ -217,6 +218,46 @@ class PostgresStore:
     def _sugg_dict(row: dict) -> dict:
         # SQLite hands back created_at as TEXT; match it so the web layer's
         # json.dumps keeps working.
+        d = dict(row)
+        if d.get("created_at") is not None:
+            d["created_at"] = d["created_at"].isoformat()
+        return d
+
+    # -- subscriptions ----------------------------------------------------
+
+    def add_subscription(self, channel: str, target: str, filters: dict) -> tuple[int, str]:
+        # token is unique, so the once-retry in _run cannot silently
+        # double-insert; a replayed INSERT errors instead.
+        token = uuid.uuid4().hex
+        sid = self._run(
+            lambda c: c.execute(
+                "INSERT INTO subscriptions (channel, target, filters, token) "
+                "VALUES (%s,%s,%s,%s) RETURNING id",
+                (channel, target, Jsonb(filters), token),
+            ).fetchone()["id"]
+        )
+        return sid, token
+
+    def deactivate_by_token(self, token: str) -> bool:
+        return self._run(
+            lambda c: c.execute(
+                "UPDATE subscriptions SET active = false WHERE token = %s",
+                (token,),
+            ).rowcount > 0
+        )
+
+    def active_subscriptions(self) -> list[dict]:
+        rows = self._run(
+            lambda c: c.execute(
+                "SELECT * FROM subscriptions WHERE active ORDER BY id"
+            ).fetchall()
+        )
+        return [self._sub_dict(r) for r in rows]
+
+    @staticmethod
+    def _sub_dict(row: dict) -> dict:
+        # jsonb filters arrive already decoded; created_at gets the same
+        # TEXT alignment _sugg_dict applies.
         d = dict(row)
         if d.get("created_at") is not None:
             d["created_at"] = d["created_at"].isoformat()

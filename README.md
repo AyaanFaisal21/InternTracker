@@ -141,9 +141,16 @@ third-party web dependencies.
 | `/api/suggestions` | GET | recent suggestions with status |
 | `/api/suggest` | POST | queue a posting URL or company name |
 | `/api/visit` | POST | page-view beacon |
+| `/api/subscribe` | POST | register for new-posting notifications, optionally per company |
+| `/api/unsubscribe` | POST | deactivate a subscription by its token |
 
-Suggest and visit are rate limited per client IP with an in-process sliding
-window (5 and 30 per minute), reading `X-Forwarded-For` behind the proxy.
+Mutating routes are rate limited per client IP with an in-process sliding
+window (suggest and subscribe 5 per minute, visit and unsubscribe 30),
+reading `X-Forwarded-For` behind the proxy. Subscriptions carry a company
+filter. An empty filter matches every posting. Company names compare after
+normalization, so "nvidia." matches NVIDIA. Each published posting triggers
+one send per matching subscription. The delivery channel is not chosen yet:
+a logging sender holds the seam where web push or email plugs in.
 Locally the server binds both loopback families, because some systems
 resolve localhost to ::1. In the container it binds 0.0.0.0. The server
 also renders a legacy HTML dashboard at `/` and `/listings` for
@@ -229,7 +236,7 @@ intake run --no-verify   # one cycle, detect + gate only, no API key needed
 intake run               # one cycle with verification
 intake loop -i 120       # continuous, 120 s interval
 intake serve -p 8642     # API server
-pytest                   # 68 tests, no network, ~2 s
+pytest                   # 74 tests, no network, ~2 s
 ```
 
 Frontend:
@@ -266,7 +273,7 @@ The verifier model is set by `verifier_model` in `src/intake/config.py`.
 
 ## Testing
 
-68 tests run in about two seconds and never touch the network. A fixture
+74 tests run in about two seconds and never touch the network. A fixture
 harness routes detector HTTP through `httpx.MockTransport`: URL substrings
 map to canned payloads, and any unmatched request returns 404 so nothing
 escapes. Fixtures are trimmed captures of live ATS responses.

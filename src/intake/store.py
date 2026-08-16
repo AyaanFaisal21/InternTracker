@@ -10,6 +10,7 @@ import json
 import os
 import sqlite3
 import threading
+import uuid
 from pathlib import Path
 
 from .schema import Posting, RawDetection, Source, Status
@@ -74,6 +75,16 @@ CREATE TABLE IF NOT EXISTS visits (
     page TEXT NOT NULL,
     ua   TEXT,
     at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel    TEXT NOT NULL,               -- 'push' | 'email'
+    target     TEXT NOT NULL,               -- push endpoint JSON or email address
+    filters    TEXT NOT NULL DEFAULT '{}',  -- JSON {"companies": [...]}; '{}' = all
+    token      TEXT NOT NULL UNIQUE,        -- opaque unsubscribe secret (uuid4 hex)
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    active     INTEGER NOT NULL DEFAULT 1
 );
 """
 
@@ -187,6 +198,33 @@ class Store:
             "SELECT * FROM suggestions ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def add_subscription(self, channel: str, target: str, filters: dict) -> tuple[int, str]:
+        token = uuid.uuid4().hex
+        cur = self.conn.execute(
+            "INSERT INTO subscriptions (channel, target, filters, token) VALUES (?,?,?,?)",
+            (channel, target, json.dumps(filters), token),
+        )
+        self.conn.commit()
+        return cur.lastrowid, token
+
+    def deactivate_by_token(self, token: str) -> bool:
+        cur = self.conn.execute(
+            "UPDATE subscriptions SET active = 0 WHERE token = ?", (token,)
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def active_subscriptions(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM subscriptions WHERE active = 1 ORDER BY id"
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["filters"] = json.loads(d["filters"])
+            out.append(d)
+        return out
 
     def all_postings(self) -> list[Posting]:
         rows = self.conn.execute(

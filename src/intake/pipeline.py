@@ -5,7 +5,8 @@ Flow per cycle:
   2. Upsert detections into the store (dedupe happens here).
   3. New postings run the rule gate. Fail -> REJECTED. Pass -> GATED.
   4. GATED postings go to the verifier agent. Verdict sets VERIFIED or REJECTED.
-  5. VERIFIED postings are handed to the publisher hook.
+  5. VERIFIED postings are handed to the publisher hook, then matching
+     notification subscriptions get one send each (notify.py).
 
 No posting reaches the publisher without a stored verdict.
 """
@@ -33,6 +34,7 @@ from .detectors import (
     SuggestionDetector,
     WorkdayDetector,
 )
+from .notify import LogSender, Sender, notify_new_posting
 from .schema import Posting, Status
 from .store import Store, open_store
 from .verify import VerifierAgent, run_rules
@@ -64,6 +66,7 @@ class Pipeline:
         detectors: list[Detector] | None = None,
         verifier: VerifierAgent | None = None,
         publisher: Callable[[Posting], None] = default_publisher,
+        sender: Sender | None = None,
     ):
         self.settings = settings
         self.store = store or open_store(settings.db_path)
@@ -82,6 +85,7 @@ class Pipeline:
         ]
         self.verifier = verifier or VerifierAgent(settings)
         self.publisher = publisher
+        self.sender = sender or LogSender()
         self.http = httpx.Client(
             follow_redirects=True,
             headers={
@@ -150,8 +154,10 @@ class Pipeline:
                 report.agent_rejected += 1
             self.store.update(p)
 
-        # 5: publish
-        for p in self.store.by_status(Status.VERIFIED):
+        # 5: publish + notification fan-out
+        verified = self.store.by_status(Status.VERIFIED)
+        subs = self.store.active_subscriptions() if verified else []
+        for p in verified:
             try:
                 self.publisher(p)
             except Exception as e:
@@ -160,5 +166,9 @@ class Pipeline:
             p.status = Status.PUBLISHED
             self.store.update(p)
             report.published += 1
+            try:
+                notify_new_posting(subs, p, self.sender)
+            except Exception as e:  # a sender crash must not kill the cycle
+                report.errors.append(f"notify {p.id}: {e}")
 
         return report

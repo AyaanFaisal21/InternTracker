@@ -10,6 +10,8 @@ Routes:
   GET  /api/suggestions  JSON: recent suggestions with status
   POST /api/suggest      queue a suggestion {kind, value, company?, keywords?}
   POST /api/visit        record a page open {page}
+  POST /api/subscribe    create a notification subscription {channel, target, filters?}
+  POST /api/unsubscribe  deactivate a subscription {token}
 
 NOTE: PAGE strings are plain Python strings. Backslash escapes inside
 embedded JS must be double-escaped or avoided; a stray \\n kills the script.
@@ -680,6 +682,8 @@ class RateLimiter:
 
 SUGGEST_LIMIT = RateLimiter(limit=5, window_s=60.0)
 VISIT_LIMIT = RateLimiter(limit=30, window_s=60.0)
+SUBSCRIBE_LIMIT = RateLimiter(limit=5, window_s=60.0)
+UNSUBSCRIBE_LIMIT = RateLimiter(limit=30, window_s=60.0)
 
 
 def make_handler(db_path: Path):
@@ -739,6 +743,46 @@ def make_handler(db_path: Path):
                 page = str(body.get("page", "unknown"))[:40]
                 open_store(db_path).record_visit(page, self.headers.get("User-Agent", "")[:200])
                 self._send(200, b"{}", "application/json")
+            elif self.path == "/api/subscribe":
+                if not SUBSCRIBE_LIMIT.allow(self._client_ip()):
+                    self._send(429, b"slow down", "text/plain")
+                    return
+                body = self._json_body()
+                if body is None:
+                    return
+                channel = body.get("channel")
+                target = str(body.get("target", "")).strip()
+                filters = body.get("filters") or {}
+                companies = (filters.get("companies") or []) if isinstance(filters, dict) else None
+                if (
+                    channel not in ("push", "email")
+                    or not target or len(target) > 500
+                    or not isinstance(companies, list) or len(companies) > 20
+                    or any(
+                        not isinstance(c, str) or not c.strip() or len(c) > 80
+                        for c in companies
+                    )
+                ):
+                    self._send(400, b"bad request", "text/plain")
+                    return
+                store = open_store(db_path)
+                sid, token = store.add_subscription(
+                    channel, target, {"companies": companies} if companies else {}
+                )
+                self._send(200, json.dumps({"id": sid, "token": token}).encode(), "application/json")
+            elif self.path == "/api/unsubscribe":
+                if not UNSUBSCRIBE_LIMIT.allow(self._client_ip()):
+                    self._send(429, b"slow down", "text/plain")
+                    return
+                body = self._json_body()
+                if body is None:
+                    return
+                token = str(body.get("token", "")).strip()
+                if not token or len(token) > 64:
+                    self._send(400, b"bad request", "text/plain")
+                    return
+                ok = open_store(db_path).deactivate_by_token(token)
+                self._send(200, json.dumps({"ok": ok}).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
 
