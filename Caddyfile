@@ -1,6 +1,16 @@
 # DOMAIN env: a hostname enables automatic HTTPS via Let's Encrypt;
 # the compose default of :80 serves plain http for bare-IP access.
+# One origin serves everything: /api/* proxies to the intake server,
+# all other paths serve the React build, unknown paths fall back to
+# index.html so client-side routes resolve on direct load.
 {$DOMAIN} {
 	encode gzip
-	reverse_proxy web:8642
+	handle /api/* {
+		reverse_proxy web:8642
+	}
+	handle {
+		root * /srv/frontend
+		try_files {path} /index.html
+		file_server
+	}
 }

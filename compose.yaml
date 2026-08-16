@@ -39,6 +39,17 @@ services:
       - DATABASE_URL=${SUPABASE_URL_POSTGRES:-}
     restart: unless-stopped
 
+  # Build-and-exit: refreshes the static bundle Caddy serves. Runs on
+  # every `up`; cp is atomic enough for a static swap.
+  frontend:
+    build:
+      context: .
+      target: frontend
+    command: ["sh", "-c", "rm -rf /srv/frontend/* && cp -r /fe/dist/. /srv/frontend/"]
+    volumes:
+      - frontend_dist:/srv/frontend
+    restart: "no"
+
   caddy:
     image: caddy:2-alpine
     ports:
@@ -50,11 +61,16 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - frontend_dist:/srv/frontend:ro
     restart: unless-stopped
     depends_on:
-      - web
+      web:
+        condition: service_started
+      frontend:
+        condition: service_completed_successfully
 
 volumes:
   data:
   caddy_data:
   caddy_config:
+  frontend_dist:

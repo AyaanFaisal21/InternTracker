@@ -27,3 +27,12 @@ RUN pip install --no-cache-dir playwright \
 # --no-verify until the verifier policy + API key are configured; override
 # the command in compose to enable verification.
 CMD ["intake", "loop", "-i", "120", "--no-verify"]
+
+# React frontend, built once at image build. Compose copies /fe/dist into
+# the volume Caddy serves; this stage never runs as a live service.
+FROM node:22-slim AS frontend
+WORKDIR /fe
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend ./
+RUN npm run build
