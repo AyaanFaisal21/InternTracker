@@ -78,6 +78,42 @@ def test_rule_rejection_skips_agent(_rules, tmp_path):
     assert pipeline.store.get(DET.dedupe_key()).reject_reason == "url returned 404"
 
 
+NVIDIA_CANON = (
+    "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/"
+    "US%2C-CA%2C-Santa-Clara/Software-Engineering-Intern--Dynamo---Fall-2026_JR2022295"
+)
+DET_SUFFIXED = RawDetection(
+    source=Source.WORKDAY, company="NVIDIA",
+    title="Software Engineering Intern, Dynamo - Fall 2026",
+    url=NVIDIA_CANON,
+    detected_at=datetime(2026, 8, 10, tzinfo=timezone.utc),
+)
+DET_CLEAN = RawDetection(
+    source=Source.GITHUB_LIST, company="NVIDIA",
+    title="Software Engineering Intern, Dynamo",
+    url="https://github.example/list",
+    detected_at=datetime(2026, 8, 12, tzinfo=timezone.utc),
+)
+
+
+@patch("intake.pipeline.run_rules", return_value=GateResult(canonical_url=NVIDIA_CANON, degree_levels=["BS"]))
+def test_same_canonical_url_reconciles_to_one_open_row(_rules, tmp_path):
+    # Two dedupe keys (season-suffixed title vs plain), one canonical page.
+    pipeline, _ = make_pipeline(tmp_path, [DET_SUFFIXED, DET_CLEAN])
+    report = pipeline.run_cycle(verify=False)  # reconcile runs even without verify
+    assert report.new == 2 and report.merged == 1 and report.rule_rejected == 0
+    assert report.collapsed == 0
+    open_rows = pipeline.store.by_status(Status.GATED)
+    assert len(open_rows) == 1
+    survivor = open_rows[0]
+    assert survivor.id == DET_SUFFIXED.dedupe_key()  # first sighting wins
+    assert survivor.title == "Software Engineering Intern, Dynamo"
+    assert set(survivor.sources) == {Source.WORKDAY, Source.GITHUB_LIST}
+    dup = pipeline.store.get(DET_CLEAN.dedupe_key())
+    assert dup.status == Status.REJECTED
+    assert dup.reject_reason == f"duplicate of {survivor.id}"
+
+
 @patch("intake.pipeline.run_rules", return_value=GateResult(canonical_url="https://stripe.com/jobs/1", degree_levels=["BS"]))
 def test_no_verify_parks_at_gated(_rules, tmp_path):
     pipeline, published = make_pipeline(tmp_path, [DET])

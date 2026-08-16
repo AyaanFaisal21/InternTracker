@@ -238,6 +238,29 @@ class Store:
         ).fetchall()
         return [self._to_posting(r) for r in rows]
 
+    def duplicate_groups(self) -> list[list[Posting]]:
+        """Live postings sharing a canonical_url, grouped, for reconciliation.
+
+        Live means gated, verified or published: pending rows have no
+        canonical_url yet, and rejected rows must stay down or every cycle
+        would re-merge them.
+        """
+        rows = self.conn.execute(
+            """SELECT * FROM postings
+               WHERE status IN ('gated', 'verified', 'published')
+                 AND canonical_url IN (
+                     SELECT canonical_url FROM postings
+                     WHERE canonical_url IS NOT NULL
+                       AND status IN ('gated', 'verified', 'published')
+                     GROUP BY canonical_url
+                     HAVING COUNT(*) > 1)
+               ORDER BY canonical_url, first_seen"""
+        ).fetchall()
+        groups: dict[str, list[Posting]] = {}
+        for r in rows:
+            groups.setdefault(r["canonical_url"], []).append(self._to_posting(r))
+        return list(groups.values())
+
     def _write(self, p: Posting) -> None:
         self.conn.execute(
             """INSERT INTO postings
@@ -246,6 +269,7 @@ class Store:
                 locations, sources, first_seen, status, reject_reason, verdict)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
+                 title=excluded.title,
                  canonical_url=excluded.canonical_url,
                  category=excluded.category,
                  audience=excluded.audience,

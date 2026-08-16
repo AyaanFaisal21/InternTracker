@@ -52,10 +52,10 @@ def main() -> None:
 
 def _report(r) -> None:
     logging.info(
-        "cycle: detected=%d new=%d rule_rejected=%d agent_rejected=%d "
-        "verified=%d published=%d errors=%d",
-        r.detected, r.new, r.rule_rejected, r.agent_rejected,
-        r.verified, r.published, len(r.errors),
+        "cycle: detected=%d new=%d rule_rejected=%d merged=%d collapsed=%d "
+        "agent_rejected=%d verified=%d published=%d errors=%d",
+        r.detected, r.new, r.rule_rejected, r.merged, r.collapsed,
+        r.agent_rejected, r.verified, r.published, len(r.errors),
     )
     for e in r.errors:
         logging.warning("cycle error: %s", e)

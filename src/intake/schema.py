@@ -62,7 +62,10 @@ class RawDetection(BaseModel):
 
         Limitation: two distinct openings with identical titles at one company
         collapse into one record. Acceptable for v1; revisit with location salt
-        if it produces false merges.
+        if it produces false merges. The inverse miss, one posting under two
+        title spellings (a season-suffixed variant), mints two keys; the
+        pipeline's reconcile pass repairs it after the gate, merging rows
+        that share a canonical URL plus an ATS job key or near-equal titles.
         """
         raw = f"{norm_text(self.company)}|{norm_text(self.title)}"
         return hashlib.sha1(raw.encode()).hexdigest()[:16]
