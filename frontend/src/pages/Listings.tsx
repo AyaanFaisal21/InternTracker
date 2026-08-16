@@ -1,6 +1,6 @@
-// Port of the "/listings" board page from web.py (PAGE).
-// The component is mounted with key=location.search (see main.tsx), so every
-// preset URL starts from fresh state, like the Python server's full page loads.
+// The "/listings" board: one master list, dark GitHub-issue styling.
+// Mounted with key=location.search (see main.tsx), so every filter URL
+// starts from fresh state, like the Python server's full page loads.
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -55,6 +55,10 @@ const FRESH: [string, number][] = [
 
 const FRESH_OPTS: Opt[] = FRESH.map((f) => [f[0], f[0]]);
 
+// Default country filter. Sentinel value, not a data string: it ORs the two
+// exact country names the server derives ("United States", "Canada").
+const US_CANADA = "us-ca";
+
 const PRESTIGE = [
   "jane street", "openai", "anthropic", "google", "apple", "nvidia", "stripe",
   "citadel", "hudson river trading", "two sigma", "palantir", "databricks",
@@ -97,12 +101,16 @@ function Row({ p, seasonFilter }: { p: Posting; seasonFilter: string }) {
         ? "pend"
         : "open";
 
-  const pills: ReactNode[] = [];
-  if ((p.category || "internship") !== "internship")
-    pills.push(<span className="lbl season">{p.category}</span>);
-  (p.audience ?? []).forEach((a) =>
-    pills.push(<span className="lbl aud">{a}</span>),
-  );
+  // Leading type tag: internships and events must be tellable apart at a
+  // glance; program/scholarship/research share a neutral treatment.
+  const cat = p.category || "internship";
+  const tagCls =
+    cat === "internship" ? "tag t-intern" : cat === "event" ? "tag t-event" : "tag t-plain";
+
+  const pills: ReactNode[] = [<span className={tagCls}>{cat}</span>];
+  (p.audience ?? [])
+    .filter((a) => a !== "diversity")
+    .forEach((a) => pills.push(<span className="lbl aud">{a}</span>));
   pills.push(<span className="lbl role">{p.role}</span>);
   pills.push(
     <span className="lbl deg">{degreesOf(p).join("/") || "any degree"}</span>,
@@ -113,8 +121,7 @@ function Row({ p, seasonFilter }: { p: Posting; seasonFilter: string }) {
   const sv = seasonOf(p);
   if (sv) pills.push(<span className="lbl season">{sv}</span>);
   else if (seasonFilter !== "all")
-    pills.push(<span className="lbl src">season unlisted</span>);
-  p.sources.forEach((s) => pills.push(<span className="lbl src">{s}</span>));
+    pills.push(<span className="lbl note">season unlisted</span>);
 
   const bodyParts: ReactNode[] = [];
   if (p.qualifications)
@@ -149,7 +156,7 @@ function Row({ p, seasonFilter }: { p: Posting; seasonFilter: string }) {
               {pill}
             </Fragment>
           ))}
-          {"   "}
+          {"   "}
           {p.status}
         </div>
       </summary>
@@ -168,14 +175,13 @@ function Row({ p, seasonFilter }: { p: Posting; seasonFilter: string }) {
 export default function Listings() {
   const { search } = useLocation();
   const params = new URLSearchParams(search);
-  const repo = params.get("repo");
 
-  // Repo presets arrive as query params; they override the defaults.
+  // Filter values may arrive as query params; they override the defaults.
   const [tab, setTab] = useState(params.get("status") || "open");
   const [degree, setDegree] = useState(params.get("degree") || "BS");
   const [role, setRole] = useState(params.get("role") || "all");
   const [fresh, setFresh] = useState(params.get("fresh") || "all");
-  const [country, setCountry] = useState(params.get("country") || "United States");
+  const [country, setCountry] = useState(params.get("country") || US_CANADA);
   const [season, setSeason] = useState(params.get("season") || "all");
   const [ctype, setCtype] = useState(params.get("type") || "all");
   const [aud, setAud] = useState(params.get("audience") || "all");
@@ -185,24 +191,13 @@ export default function Listings() {
   const [sugs, setSugs] = useState<Suggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  const [pinned, setPinned] = useState(() => {
-    // localStorage throws when storage is blocked (e.g. cookies disabled);
-    // fall back to unpinned instead of crashing the page.
-    try {
-      return localStorage.getItem("sbpin") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const [edge, setEdge] = useState(false);
-
   const [sugval, setSugval] = useState("");
   const [sugkw, setSugkw] = useState("");
   const [sugmsg, setSugmsg] = useState("");
 
   useEffect(() => {
     document.title = "Shortlist · Listings";
-    recordVisit("listings:" + (repo || "all"));
+    recordVisit("listings");
   }, []);
 
   // Monotonic request ids: a response is applied only while it is still the
@@ -245,19 +240,9 @@ export default function Listings() {
     };
   }, []);
 
-  // Sidebar must react even when the cursor sits in the far-left window
-  // gutter outside the centered layout.
-  useEffect(() => {
-    const onMove = (e: MouseEvent) =>
-      setEdge((prev) => (e.clientX < 44 ? true : e.clientX > 300 ? false : prev));
-    document.addEventListener("mousemove", onMove);
-    return () => document.removeEventListener("mousemove", onMove);
-  }, []);
-
   // Everything here depends on `data` alone, so memoize it: without this the
   // option lists, counts, and spotlight sort are rebuilt (O(options × n)) on
-  // every keystroke in the search and suggestion inputs and on every sidebar
-  // edge-hover render.
+  // every keystroke in the search and suggestion inputs.
   const {
     openN,
     statusOpts,
@@ -272,7 +257,10 @@ export default function Listings() {
     const openN = data.filter(isOpen).length;
 
     const cats = [...new Set(data.map((p) => p.category || "internship"))].sort();
-    const auds = [...new Set(data.flatMap((p) => p.audience ?? []))].sort();
+    // The diversity audience is filtered out of the UI entirely.
+    const auds = [...new Set(data.flatMap((p) => p.audience ?? []))]
+      .filter((a) => a !== "diversity")
+      .sort();
     const roles = [...new Set(data.map((p) => p.role))].sort();
     const countries = [...new Set(data.flatMap((p) => p.countries ?? []))].sort();
     const seasons = [
@@ -320,6 +308,7 @@ export default function Listings() {
     ];
     const countryOpts: Opt[] = [
       ["all", "all"],
+      [US_CANADA, "US & Canada"],
       ...countries.map((c): Opt => [c, c]),
     ];
     const seasonOpts: Opt[] = [
@@ -349,7 +338,7 @@ export default function Listings() {
   // Mirror of web.py's fillOpts fallback: when the current filter value is
   // not among the options the data offers, reset it to "all" (web.py tests
   // membership in the same option lists). Runs only after a successful load
-  // so URL presets survive an unreachable backend. Degree and Posted are
+  // so URL params survive an unreachable backend. Degree and Posted are
   // never reset, as in web.py.
   useEffect(() => {
     if (!loaded) return;
@@ -365,16 +354,6 @@ export default function Listings() {
     setCountry((v) => (countries.has(v) ? v : "all"));
     setSeason((v) => (seasons.has(v) ? v : "all"));
   }, [loaded, typeOpts, audOpts, roleOpts, countryOpts, seasonOpts]);
-
-  const togglePin = () => {
-    const on = !pinned;
-    setPinned(on);
-    try {
-      localStorage.setItem("sbpin", on ? "1" : "");
-    } catch {
-      // storage blocked: the pin still applies for this page's lifetime
-    }
-  };
 
   function matches(p: Posting): boolean {
     if (tab === "open" ? !isOpen(p) : p.status !== "rejected") return false;
@@ -397,11 +376,16 @@ export default function Listings() {
         if (h === null || h > limit) return false;
       }
     }
-    if (country !== "all" && !(p.countries ?? []).includes(country)) return false;
+    if (country === US_CANADA) {
+      const cs = p.countries ?? [];
+      if (!cs.includes("United States") && !cs.includes("Canada")) return false;
+    } else if (country !== "all" && !(p.countries ?? []).includes(country)) {
+      return false;
+    }
     if (season !== "all") {
       const sv = seasonOf(p);
       // Unknown season passes every season filter: most postings never state
-      // a cycle, and hiding them empties the presets. is_open verification
+      // a cycle, and hiding them empties the board. is_open verification
       // is what retires dead-season postings, not this tag.
       if (sv) {
         if (season.startsWith("cycle:")) {
@@ -437,34 +421,19 @@ export default function Listings() {
     loadSugs();
   }
 
-  const layoutCls =
-    "layout" + (pinned ? " pinned" : "") + (edge ? " edge" : "");
-
   return (
     <div className="page-listings">
-      <TopBar crumb={repo || "Listings"} />
-      <div className={layoutCls}>
+      <TopBar />
+      <div className="layout">
         <div className="sidebar">
-          <div className="rail">⚙</div>
-          <div className="side-inner">
-            <SideSelect head="Status" opts={statusOpts} value={tab} onChange={setTab} />
-            <SideSelect head="Type" opts={typeOpts} value={ctype} onChange={setCtype} />
-            <SideSelect head="Audience" opts={audOpts} value={aud} onChange={setAud} />
-            <SideSelect head="Degree" opts={degreeOpts} value={degree} onChange={setDegree} />
-            <SideSelect head="Role" opts={roleOpts} value={role} onChange={setRole} />
-            <SideSelect head="Posted" opts={FRESH_OPTS} value={fresh} onChange={setFresh} />
-            <SideSelect head="Country" opts={countryOpts} value={country} onChange={setCountry} />
-            <SideSelect head="Season" opts={seasonOpts} value={season} onChange={setSeason} />
-            <div
-              className="side-collapse"
-              role="button"
-              tabIndex={0}
-              onClick={togglePin}
-              onKeyDown={keyActivate(togglePin)}
-            >
-              📌 {pinned ? "Unpin sidebar" : "Pin sidebar open"}
-            </div>
-          </div>
+          <SideSelect head="Status" opts={statusOpts} value={tab} onChange={setTab} />
+          <SideSelect head="Type" opts={typeOpts} value={ctype} onChange={setCtype} />
+          <SideSelect head="Audience" opts={audOpts} value={aud} onChange={setAud} />
+          <SideSelect head="Degree" opts={degreeOpts} value={degree} onChange={setDegree} />
+          <SideSelect head="Role" opts={roleOpts} value={role} onChange={setRole} />
+          <SideSelect head="Posted" opts={FRESH_OPTS} value={fresh} onChange={setFresh} />
+          <SideSelect head="Country" opts={countryOpts} value={country} onChange={setCountry} />
+          <SideSelect head="Season" opts={seasonOpts} value={season} onChange={setSeason} />
         </div>
         <div className="main">
           <div className="banner">

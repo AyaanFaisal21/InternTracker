@@ -26,18 +26,6 @@ export function seasonOf(p: Posting): string | null {
   return (p.verdict && p.verdict.season) || p.season || null;
 }
 
-/** Open to undergraduates (unstated degree levels allow everyone). */
-export function allowsBS(p: Posting): boolean {
-  const d = degreesOf(p);
-  return !d.length || d.includes("BS");
-}
-
-/** Open to graduate students (unstated degree levels allow everyone). */
-export function allowsGrad(p: Posting): boolean {
-  const d = degreesOf(p);
-  return !d.length || d.includes("MS") || d.includes("PhD");
-}
-
 export function hoursAgo(p: Posting): number | null {
   return p.date_posted
     ? (Date.now() - new Date(p.date_posted).getTime()) / 3.6e6

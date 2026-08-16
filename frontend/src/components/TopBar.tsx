@@ -1,29 +1,21 @@
+// Dark top bar for the board page: brand link home, a static crumb back to
+// the master list, and the disabled search placeholder from web.py.
+
 import { Link } from "react-router-dom";
 
-/**
- * Top bar. Without `crumb` it renders the landing variant; with `crumb` it
- * renders the listings variant (brand plus " · <crumb>" breadcrumb).
- * The search input is a disabled placeholder, as in web.py.
- */
-export default function TopBar({ crumb }: { crumb?: string }) {
+export default function TopBar() {
   return (
     <div className="topbar">
       <span className="burger">☰</span>
-      {crumb === undefined ? (
+      <span className="brand">
         <Link className="brand" to="/">
           <span className="ru">Short</span>list
-        </Link>
-      ) : (
-        <span className="brand">
-          <Link className="brand" to="/">
-            <span className="ru">Short</span>list
-          </Link>{" "}
-          <span className="crumb">
-            {" · "}
-            <Link to="/listings">{crumb}</Link>
-          </span>
+        </Link>{" "}
+        <span className="crumb">
+          {" · "}
+          <Link to="/listings">The List</Link>
         </span>
-      )}
+      </span>
       <input
         className="topsearch"
         placeholder="Type / to search"
