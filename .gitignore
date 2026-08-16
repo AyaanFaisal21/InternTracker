@@ -5,3 +5,4 @@ intake.db
 .env
 .pytest_cache/
 NOTES.md
+.claude/
