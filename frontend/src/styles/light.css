@@ -1,0 +1,44 @@
+/* Identity shared by the light pages (/ and /practice): paper and burgundy
+   ink tokens, masthead, footer. Scoped under .page-light; the board keeps
+   the dark theme from base.css. */
+
+.page-light {
+  --paper: #efe9dc;
+  --paper-deep: #e7dfcc;
+  --ink: #6d1a1a;
+  --ink-soft: #8a4a40;
+  --scarlet: #b02a18;
+  --rule: rgba(109, 26, 26, 0.28);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 15px;
+}
+.page-light ::selection { background: var(--ink); color: var(--paper); }
+.page-light a { color: var(--ink); }
+.page-light main { flex: 1; }
+.page-light .shell-inner { width: 100%; max-width: 1020px; margin: 0 auto; padding: 0 32px; }
+
+.page-light .masthead { border-bottom: 1px solid var(--rule); }
+.page-light .masthead-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 28px;
+                            padding-top: 18px; padding-bottom: 18px; }
+.page-light .wordmark { display: inline-flex; align-items: center; gap: 9px;
+                        font: 700 19px Georgia, "Times New Roman", serif; }
+.page-light .wordmark:hover { text-decoration: none; color: var(--scarlet); }
+.page-light .mark { width: 20px; height: 20px; flex-shrink: 0; }
+.page-light .mark rect { fill: currentColor; }
+.page-light .mark .m { fill: var(--scarlet); }
+.page-light .mastnav { margin-left: auto; display: flex; gap: 26px; font-size: 13.5px; }
+.page-light .mastnav a { border-bottom: 1px solid transparent; padding-bottom: 2px; white-space: nowrap; }
+.page-light .mastnav a:hover { text-decoration: none; border-bottom-color: var(--scarlet); }
+
+.page-light .eyebrow { display: flex; align-items: center; gap: 12px; font-size: 12px;
+                       font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
+                       color: var(--scarlet); }
+.page-light .eyebrow::before { content: ""; width: 34px; height: 2px; background: var(--scarlet); }
+
+.page-light .colophon { border-top: 1px solid var(--rule); color: var(--ink-soft);
+                        font-size: 12.5px; letter-spacing: 0.04em; }
+.page-light .colophon .shell-inner { padding-top: 16px; padding-bottom: 20px; }
