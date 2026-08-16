@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .locations import countries_of
+from .locations import countries_of, is_remote
 from .roles import classify_role
 from .store import open_store
 
@@ -313,7 +313,7 @@ fetch("/api/postings").then(r => r.json()).then(d => {
   open.forEach(p => byCo[p.company] = (byCo[p.company] || 0) + 1);
   const top = Object.entries(byCo).sort((a, b) => b[1] - a[1]).slice(0, 12);
   document.getElementById("people").innerHTML = top.map(([co]) => {
-    const init = co.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
+    const init = co.split(/\\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
     return `<div class="person" title="${co}" style="border-color:hsl(${hue(co)} 40% 35%);
       color:hsl(${hue(co)} 60% 75%)">${init}</div>`;
   }).join("");
@@ -526,7 +526,15 @@ function matches(p) {
     const h = hoursAgo(p);
     if (h === null || h > FRESH.find(f => f[0] === fresh)[1]) return false;
   }
-  if (country !== "all" && !(p.countries || []).includes(country)) return false;
+  if (country === "remote") {
+    if (!p.remote) return false;
+  } else if (country !== "all" && !p.remote) {
+    // No derived country means the region is unknown, so the row passes
+    // every region selection (same rule as unknown season below). Remote
+    // rows (branch above) pass every region too.
+    const cs = p.countries || [];
+    if (cs.length && !cs.includes(country)) return false;
+  }
   if (season !== "all") {
     const sv = seasonOf(p);
     // Unknown season passes every season filter: most postings never state
@@ -576,7 +584,7 @@ function rowHtml(p) {
         <span class="t"><a href="${esc(p.canonical_url || p.url)}" target="_blank">${esc(p.title)}</a></span>
         <span class="posted">${postedLabel(p)}</span>
       </div>
-      <div class="l2">${misc} &nbsp; ${p.status}</div>
+      <div class="l2">${misc}</div>
     </summary>
     <div class="body">${bodyParts.join("<br><br>")}</div>
   </details>`;
@@ -613,8 +621,9 @@ function render() {
     roles.map(r => [r, r + " (" + data.filter(p => p.role === r).length + ")"])), role) || "all";
   fillOpts("f-fresh", FRESH.map(f => [f[0], f[0]]), fresh);
   const cs = [...new Set(data.flatMap(p => p.countries || []))].sort();
-  country = fillOpts("f-country", [["all", "all"]].concat(cs.map(c => [c, c])),
-    cs.includes(country) || country === "all" ? country : "all") || "all";
+  const cOpts = [["all", "all"], ["remote", "Remote"]].concat(cs.map(c => [c, c]));
+  country = fillOpts("f-country", cOpts,
+    cOpts.some(o => o[0] === country) ? country : "all") || "all";
   const ss = [...new Set(data.map(seasonOf).filter(Boolean))].sort();
   const sOpts = [["all", "all"], ["cycle:2027", "2027 cycle"]].concat(ss.map(x => [x, x]));
   season = fillOpts("f-season", sOpts,
@@ -699,6 +708,7 @@ def make_handler(db_path: Path):
                 for p in store.all_postings():
                     d = p.model_dump(mode="json")
                     d["countries"] = countries_of(p.locations)
+                    d["remote"] = is_remote(p.locations)
                     d["role"] = classify_role(p.title)
                     rows.append(d)
                 body = json.dumps(rows).encode()

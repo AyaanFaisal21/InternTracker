@@ -37,6 +37,14 @@ def test_dashboard_serves_html_and_json(tmp_path):
         RawDetection(
             source=Source.GREENHOUSE, company="Stripe",
             title="Software Engineer Intern", url="https://stripe.com/jobs/1",
+            locations=["New York, NY"],
+        )
+    )
+    store.upsert_detection(
+        RawDetection(
+            source=Source.GREENHOUSE, company="Oracle",
+            title="Software Developer Intern", url="https://oracle.com/jobs/2",
+            locations=["Remote - US"],
         )
     )
 
@@ -67,9 +75,14 @@ def test_dashboard_serves_html_and_json(tmp_path):
         api = httpx.get(f"{base}/api/postings")
         assert api.status_code == 200
         postings = api.json()
-        assert len(postings) == 1
-        assert postings[0]["company"] == "Stripe"
-        assert postings[0]["status"] == "pending"
+        assert len(postings) == 2
+        by = {p["company"]: p for p in postings}
+        assert by["Stripe"]["status"] == "pending"
+        # Derived location semantics: countries plus the remote boolean.
+        assert by["Stripe"]["countries"] == ["United States"]
+        assert by["Stripe"]["remote"] is False
+        assert by["Oracle"]["countries"] == ["United States"]
+        assert by["Oracle"]["remote"] is True
 
         assert httpx.get(f"{base}/nope").status_code == 404
     finally:

@@ -1,4 +1,4 @@
-"""Country extraction from free-text location labels.
+"""Country and remote extraction from free-text location labels.
 
 ATS location strings have no schema: "US, CA, Santa Clara",
 "New York, NY (HQ)", "Bengaluru", "Taiwan, Taipei", "Remote". Strategy:
@@ -8,6 +8,12 @@ country), (3) a small tech-hub city map for bare-city labels.
 
 "Georgia" is treated as the US state, not the country — in tech
 recruiting data that reading is almost always correct.
+
+Remote is a separate axis, not a country: `is_remote` flags labels like
+"Remote", "US Remote", "Virtual", "Work from home". A hybrid label
+("Remote - US") is both remote and its country. Labels that match no
+country contribute nothing, so the board can treat an empty country list
+as country-unknown.
 """
 
 from __future__ import annotations
@@ -146,27 +152,36 @@ _CITY_HINTS: dict[str, str] = {
 
 _SPLIT_RE = re.compile(r"[,;/()–—-]| - ")
 
+# Remote-work markers. Word-bounded, so "Remoteville" stays a place name.
+_REMOTE_RE = re.compile(
+    r"\b(?:remote|virtual|wfh|work[\s-]+from[\s-]+home|telecommut\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def is_remote(locations: list[str]) -> bool:
+    """True when any location label signals remote work. Hybrid labels
+    ("Remote - US") count: the posting is workable remotely."""
+    return any(_REMOTE_RE.search(label) for label in locations)
+
 
 def countries_of(locations: list[str]) -> list[str]:
-    """Canonical countries for a posting. "Remote" is its own bucket.
-    Labels that match nothing yield "Unknown" so they stay filterable."""
+    """Canonical countries for a posting: real countries only. Remote is
+    a separate axis (`is_remote`), and a label that matches nothing adds
+    nothing — an empty result means the region is unknown."""
     found: set[str] = set()
     for label in locations:
-        matched = False
         tokens = [t.strip().lower() for t in _SPLIT_RE.split(label) if t.strip()]
         for tok in tokens:
+            # "US Remote" must still read as the US: drop the remote
+            # markers, then match whatever place name remains.
+            tok = _REMOTE_RE.sub(" ", tok).strip()
+            if not tok:
+                continue
             if tok in _ALIAS_TO_COUNTRY:
                 found.add(_ALIAS_TO_COUNTRY[tok])
-                matched = True
             elif tok in _US_STATE_CODES or tok in _US_STATE_NAMES:
                 found.add("United States")
-                matched = True
             elif tok in _CITY_HINTS:
                 found.add(_CITY_HINTS[tok])
-                matched = True
-            elif "remote" in tok:
-                found.add("Remote")
-                matched = True
-        if not matched and label.strip():
-            found.add("Unknown")
     return sorted(found)

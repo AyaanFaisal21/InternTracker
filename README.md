@@ -137,7 +137,7 @@ third-party web dependencies.
 
 | Route | Method | Purpose |
 |---|---|---|
-| `/api/postings` | GET | all postings, newest first, plus derived `countries` and `role` fields |
+| `/api/postings` | GET | all postings, newest first, plus derived `countries`, `role`, and `remote` fields |
 | `/api/suggestions` | GET | recent suggestions with status |
 | `/api/suggest` | POST | queue a posting URL or company name |
 | `/api/visit` | POST | page-view beacon |
