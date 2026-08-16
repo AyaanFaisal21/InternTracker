@@ -85,14 +85,16 @@ export interface SuggestInput {
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-export async function fetchPostings(): Promise<Posting[]> {
-  const r = await fetch("/api/postings");
+export async function fetchPostings(signal?: AbortSignal): Promise<Posting[]> {
+  const r = await fetch("/api/postings", { signal });
   if (!r.ok) throw new Error(`GET /api/postings: ${r.status}`);
   return (await r.json()) as Posting[];
 }
 
-export async function fetchSuggestions(): Promise<Suggestion[]> {
-  const r = await fetch("/api/suggestions");
+export async function fetchSuggestions(
+  signal?: AbortSignal,
+): Promise<Suggestion[]> {
+  const r = await fetch("/api/suggestions", { signal });
   if (!r.ok) throw new Error(`GET /api/suggestions: ${r.status}`);
   return (await r.json()) as Suggestion[];
 }

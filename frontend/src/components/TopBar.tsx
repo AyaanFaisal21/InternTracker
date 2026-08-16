@@ -24,7 +24,12 @@ export default function TopBar({ crumb }: { crumb?: string }) {
           </span>
         </span>
       )}
-      <input className="topsearch" placeholder="Type / to search" disabled />
+      <input
+        className="topsearch"
+        placeholder="Type / to search"
+        aria-label="Search"
+        disabled
+      />
     </div>
   );
 }

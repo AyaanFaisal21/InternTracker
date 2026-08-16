@@ -2,7 +2,7 @@
 // The component is mounted with key=location.search (see main.tsx), so every
 // preset URL starts from fresh state, like the Python server's full page loads.
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
   fetchPostings,
@@ -21,9 +21,19 @@ import {
 import TopBar from "../components/TopBar";
 import "../styles/listings.css";
 
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
 type Opt = [string, string];
+
+/** Enter/Space activation for clickable elements that are not buttons. */
+function keyActivate(fn: () => void) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      fn();
+    }
+  };
+}
 
 const DEGREES: Opt[] = [
   ["any", "any"],
@@ -42,6 +52,8 @@ const FRESH: [string, number][] = [
   ["3d", 72],
   ["1w", 168],
 ];
+
+const FRESH_OPTS: Opt[] = FRESH.map((f) => [f[0], f[0]]);
 
 const PRESTIGE = [
   "jane street", "openai", "anthropic", "google", "apple", "nvidia", "stripe",
@@ -65,6 +77,7 @@ function SideSelect({
       <div className="side-head">{head}</div>
       <select
         className="side-select"
+        aria-label={head}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >
@@ -123,7 +136,9 @@ function Row({ p, seasonFilter }: { p: Posting; seasonFilter: string }) {
           <span className="dot">●</span>
           <span className="cobox">{p.company}</span>
           <span className="t">
-            <a href={p.canonical_url || p.url} target="_blank">{p.title}</a>
+            <a href={p.canonical_url || p.url} target="_blank" rel="noopener">
+              {p.title}
+            </a>
           </span>
           <span className="posted">{postedLabel(p)}</span>
         </div>
@@ -170,9 +185,15 @@ export default function Listings() {
   const [sugs, setSugs] = useState<Suggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  const [pinned, setPinned] = useState(
-    () => localStorage.getItem("sbpin") === "1",
-  );
+  const [pinned, setPinned] = useState(() => {
+    // localStorage throws when storage is blocked (e.g. cookies disabled);
+    // fall back to unpinned instead of crashing the page.
+    try {
+      return localStorage.getItem("sbpin") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [edge, setEdge] = useState(false);
 
   const [sugval, setSugval] = useState("");
@@ -184,21 +205,44 @@ export default function Listings() {
     recordVisit("listings:" + (repo || "all"));
   }, []);
 
+  // Monotonic request ids: a response is applied only while it is still the
+  // newest request for its resource, so a slow response from an earlier 30s
+  // tick cannot overwrite data from a later one. Refs, not state: they must
+  // update synchronously and never cause renders.
+  const postingsReq = useRef(0);
+  const sugsReq = useRef(0);
+
+  // Shared by the 30s refresh and the post-submit refresh in suggest(), so
+  // those two callers cannot interleave stale suggestion lists either.
+  // Reads only refs and setters, hence safe to call from any render.
+  const loadSugs = (signal?: AbortSignal) => {
+    const id = ++sugsReq.current;
+    fetchSuggestions(signal)
+      .then((s) => {
+        if (id === sugsReq.current) setSugs(s);
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
+    const ctrl = new AbortController();
     const load = () => {
-      fetchPostings()
+      const id = ++postingsReq.current;
+      fetchPostings(ctrl.signal)
         .then((d) => {
+          if (id !== postingsReq.current) return; // stale response
           setData(d);
           setLoaded(true);
         })
         .catch(() => {});
-      fetchSuggestions()
-        .then(setSugs)
-        .catch(() => {});
+      loadSugs(ctrl.signal);
     };
     load();
     const t = setInterval(load, 30000);
-    return () => clearInterval(t);
+    return () => {
+      clearInterval(t);
+      ctrl.abort(); // cancel in-flight requests on unmount
+    };
   }, []);
 
   // Sidebar must react even when the cursor sits in the far-left window
@@ -210,39 +254,126 @@ export default function Listings() {
     return () => document.removeEventListener("mousemove", onMove);
   }, []);
 
+  // Everything here depends on `data` alone, so memoize it: without this the
+  // option lists, counts, and spotlight sort are rebuilt (O(options × n)) on
+  // every keystroke in the search and suggestion inputs and on every sidebar
+  // edge-hover render.
+  const {
+    openN,
+    statusOpts,
+    typeOpts,
+    audOpts,
+    degreeOpts,
+    roleOpts,
+    countryOpts,
+    seasonOpts,
+    spots,
+  } = useMemo(() => {
+    const openN = data.filter(isOpen).length;
+
+    const cats = [...new Set(data.map((p) => p.category || "internship"))].sort();
+    const auds = [...new Set(data.flatMap((p) => p.audience ?? []))].sort();
+    const roles = [...new Set(data.map((p) => p.role))].sort();
+    const countries = [...new Set(data.flatMap((p) => p.countries ?? []))].sort();
+    const seasons = [
+      ...new Set(data.map(seasonOf).filter((s): s is string => Boolean(s))),
+    ].sort();
+
+    const statusOpts: Opt[] = [
+      ["open", `open (${openN})`],
+      ["closed", `closed (${data.length - openN})`],
+    ];
+    const typeOpts: Opt[] = [
+      ["all", `all (${data.length})`],
+      ...cats.map((c): Opt => [
+        c,
+        `${c} (${data.filter((p) => (p.category || "internship") === c).length})`,
+      ]),
+      ...(cats.length > 1 ? [["programs", "non-internship"] as Opt] : []),
+    ];
+    const audOpts: Opt[] = [
+      ["all", "all"],
+      ...auds.map((a): Opt => [
+        a,
+        `${a} (${data.filter((p) => (p.audience ?? []).includes(a)).length})`,
+      ]),
+    ];
+    const degreeOpts: Opt[] = DEGREES.map(([v, label]) => [
+      v,
+      v === "any"
+        ? "any"
+        : `${label} (${
+            data.filter((p) => {
+              const dd = degreesOf(p);
+              if (v === "grad")
+                return !dd.length || dd.includes("MS") || dd.includes("PhD");
+              return !dd.length || dd.includes(v);
+            }).length
+          })`,
+    ]);
+    const roleOpts: Opt[] = [
+      ["all", `all (${data.length})`],
+      ...roles.map((r): Opt => [
+        r,
+        `${r} (${data.filter((p) => p.role === r).length})`,
+      ]),
+    ];
+    const countryOpts: Opt[] = [
+      ["all", "all"],
+      ...countries.map((c): Opt => [c, c]),
+    ];
+    const seasonOpts: Opt[] = [
+      ["all", "all"],
+      ["cycle:2027", "2027 cycle"],
+      ...seasons.map((s): Opt => [s, s]),
+    ];
+
+    const spots = data
+      .filter((p) => isOpen(p) && PRESTIGE.includes(p.company.toLowerCase()))
+      .sort((a, b) => (b.date_posted || "").localeCompare(a.date_posted || ""))
+      .slice(0, 2);
+
+    return {
+      openN,
+      statusOpts,
+      typeOpts,
+      audOpts,
+      degreeOpts,
+      roleOpts,
+      countryOpts,
+      seasonOpts,
+      spots,
+    };
+  }, [data]);
+
   // Mirror of web.py's fillOpts fallback: when the current filter value is
-  // not among the options the data offers, reset it to "all". Runs only
-  // after a successful load so URL presets survive an unreachable backend.
+  // not among the options the data offers, reset it to "all" (web.py tests
+  // membership in the same option lists). Runs only after a successful load
+  // so URL presets survive an unreachable backend. Degree and Posted are
+  // never reset, as in web.py.
   useEffect(() => {
     if (!loaded) return;
-    const cats = [...new Set(data.map((p) => p.category || "internship"))];
-    const validTypes = new Set([
-      "all",
-      ...cats,
-      ...(cats.length > 1 ? ["programs"] : []),
-    ]);
-    const validAuds = new Set(["all", ...data.flatMap((p) => p.audience ?? [])]);
-    const validRoles = new Set(["all", ...data.map((p) => p.role)]);
-    const validCountries = new Set([
-      "all",
-      ...data.flatMap((p) => p.countries ?? []),
-    ]);
-    const validSeasons = new Set([
-      "all",
-      "cycle:2027",
-      ...data.map(seasonOf).filter((s): s is string => Boolean(s)),
-    ]);
-    setCtype((v) => (validTypes.has(v) ? v : "all"));
-    setAud((v) => (validAuds.has(v) ? v : "all"));
-    setRole((v) => (validRoles.has(v) ? v : "all"));
-    setCountry((v) => (validCountries.has(v) ? v : "all"));
-    setSeason((v) => (validSeasons.has(v) ? v : "all"));
-  }, [data, loaded]);
+    const values = (opts: Opt[]) => new Set(opts.map(([v]) => v));
+    const types = values(typeOpts);
+    const audiences = values(audOpts);
+    const roles = values(roleOpts);
+    const countries = values(countryOpts);
+    const seasons = values(seasonOpts);
+    setCtype((v) => (types.has(v) ? v : "all"));
+    setAud((v) => (audiences.has(v) ? v : "all"));
+    setRole((v) => (roles.has(v) ? v : "all"));
+    setCountry((v) => (countries.has(v) ? v : "all"));
+    setSeason((v) => (seasons.has(v) ? v : "all"));
+  }, [loaded, typeOpts, audOpts, roleOpts, countryOpts, seasonOpts]);
 
   const togglePin = () => {
     const on = !pinned;
     setPinned(on);
-    localStorage.setItem("sbpin", on ? "1" : "");
+    try {
+      localStorage.setItem("sbpin", on ? "1" : "");
+    } catch {
+      // storage blocked: the pin still applies for this page's lifetime
+    }
   };
 
   function matches(p: Posting): boolean {
@@ -288,71 +419,7 @@ export default function Listings() {
     return true;
   }
 
-  const openN = data.filter(isOpen).length;
   const shown = data.filter(matches);
-
-  const cats = [...new Set(data.map((p) => p.category || "internship"))].sort();
-  const auds = [...new Set(data.flatMap((p) => p.audience ?? []))].sort();
-  const roles = [...new Set(data.map((p) => p.role))].sort();
-  const countries = [...new Set(data.flatMap((p) => p.countries ?? []))].sort();
-  const seasons = [
-    ...new Set(data.map(seasonOf).filter((s): s is string => Boolean(s))),
-  ].sort();
-
-  const statusOpts: Opt[] = [
-    ["open", `open (${openN})`],
-    ["closed", `closed (${data.length - openN})`],
-  ];
-  const typeOpts: Opt[] = [
-    ["all", `all (${data.length})`],
-    ...cats.map((c): Opt => [
-      c,
-      `${c} (${data.filter((p) => (p.category || "internship") === c).length})`,
-    ]),
-    ...(cats.length > 1 ? [["programs", "non-internship"] as Opt] : []),
-  ];
-  const audOpts: Opt[] = [
-    ["all", "all"],
-    ...auds.map((a): Opt => [
-      a,
-      `${a} (${data.filter((p) => (p.audience ?? []).includes(a)).length})`,
-    ]),
-  ];
-  const degreeOpts: Opt[] = DEGREES.map(([v, label]) => [
-    v,
-    v === "any"
-      ? "any"
-      : `${label} (${
-          data.filter((p) => {
-            const dd = degreesOf(p);
-            if (v === "grad")
-              return !dd.length || dd.includes("MS") || dd.includes("PhD");
-            return !dd.length || dd.includes(v);
-          }).length
-        })`,
-  ]);
-  const roleOpts: Opt[] = [
-    ["all", `all (${data.length})`],
-    ...roles.map((r): Opt => [
-      r,
-      `${r} (${data.filter((p) => p.role === r).length})`,
-    ]),
-  ];
-  const freshOpts: Opt[] = FRESH.map((f) => [f[0], f[0]]);
-  const countryOpts: Opt[] = [
-    ["all", "all"],
-    ...countries.map((c): Opt => [c, c]),
-  ];
-  const seasonOpts: Opt[] = [
-    ["all", "all"],
-    ["cycle:2027", "2027 cycle"],
-    ...seasons.map((s): Opt => [s, s]),
-  ];
-
-  const spots = data
-    .filter((p) => isOpen(p) && PRESTIGE.includes(p.company.toLowerCase()))
-    .sort((a, b) => (b.date_posted || "").localeCompare(a.date_posted || ""))
-    .slice(0, 2);
 
   async function suggest() {
     const value = sugval.trim();
@@ -367,9 +434,7 @@ export default function Listings() {
     setSugmsg("queued; processed next cycle");
     setSugval("");
     setSugkw("");
-    fetchSuggestions()
-      .then(setSugs)
-      .catch(() => {});
+    loadSugs();
   }
 
   const layoutCls =
@@ -387,10 +452,16 @@ export default function Listings() {
             <SideSelect head="Audience" opts={audOpts} value={aud} onChange={setAud} />
             <SideSelect head="Degree" opts={degreeOpts} value={degree} onChange={setDegree} />
             <SideSelect head="Role" opts={roleOpts} value={role} onChange={setRole} />
-            <SideSelect head="Posted" opts={freshOpts} value={fresh} onChange={setFresh} />
+            <SideSelect head="Posted" opts={FRESH_OPTS} value={fresh} onChange={setFresh} />
             <SideSelect head="Country" opts={countryOpts} value={country} onChange={setCountry} />
             <SideSelect head="Season" opts={seasonOpts} value={season} onChange={setSeason} />
-            <div className="side-collapse" onClick={togglePin}>
+            <div
+              className="side-collapse"
+              role="button"
+              tabIndex={0}
+              onClick={togglePin}
+              onKeyDown={keyActivate(togglePin)}
+            >
               📌 {pinned ? "Unpin sidebar" : "Pin sidebar open"}
             </div>
           </div>
@@ -406,12 +477,14 @@ export default function Listings() {
             <div style={{ marginTop: 8 }}>
               <input
                 placeholder="posting URL or company name"
+                aria-label="posting URL or company name"
                 size={38}
                 value={sugval}
                 onChange={(e) => setSugval(e.target.value)}
               />{" "}
               <input
                 placeholder="keywords (optional)"
+                aria-label="keywords (optional)"
                 size={20}
                 value={sugkw}
                 onChange={(e) => setSugkw(e.target.value)}
@@ -434,7 +507,9 @@ export default function Listings() {
               <div className="spot" key={p.id}>
                 <div className="co">★ spotlight · {p.company}</div>
                 <div className="t">
-                  <a href={p.canonical_url || p.url} target="_blank">{p.title}</a>
+                  <a href={p.canonical_url || p.url} target="_blank" rel="noopener">
+                    {p.title}
+                  </a>
                 </div>
                 <div className="co">{postedLabel(p)}</div>
               </div>
@@ -443,6 +518,7 @@ export default function Listings() {
           <div className="searchrow">
             <input
               placeholder="Search title, company, qualifications"
+              aria-label="Search title, company, qualifications"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -450,13 +526,21 @@ export default function Listings() {
           <div className="listhead">
             <span
               className={tab === "open" ? "tab on" : "tab"}
+              role="button"
+              tabIndex={0}
+              aria-pressed={tab === "open"}
               onClick={() => setTab("open")}
+              onKeyDown={keyActivate(() => setTab("open"))}
             >
               Open <span>{openN}</span>
             </span>
             <span
               className={tab === "closed" ? "tab on" : "tab"}
+              role="button"
+              tabIndex={0}
+              aria-pressed={tab === "closed"}
               onClick={() => setTab("closed")}
+              onKeyDown={keyActivate(() => setTab("closed"))}
             >
               Closed <span>{data.length - openN}</span>
             </span>

@@ -46,9 +46,10 @@ export function hoursAgo(p: Posting): number | null {
 
 export function postedLabel(p: Posting): string {
   const h = hoursAgo(p);
-  if (h === null) return p.date_posted_text || "date unknown";
+  const iso = p.date_posted;
+  if (h === null || iso === null) return p.date_posted_text || "date unknown";
   if (h < 1) return "just now";
   if (h < 24) return Math.floor(h) + "h ago";
   if (h < 24 * 14) return Math.floor(h / 24) + "d ago";
-  return (p.date_posted as string).slice(0, 10);
+  return iso.slice(0, 10);
 }

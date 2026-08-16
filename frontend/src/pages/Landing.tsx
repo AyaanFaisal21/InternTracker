@@ -1,6 +1,6 @@
 // Port of the "/" org-profile landing page from web.py (LANDING).
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchPostings, recordVisit } from "../api";
 import type { Posting } from "../api";
@@ -88,7 +88,7 @@ const REPOS: Repo[] = [
 
 /** 21-day activity sparkline points, one x step per day. */
 function sparkPoints(rows: Posting[]): string {
-  const days = new Array(21).fill(0) as number[];
+  const days = new Array<number>(21).fill(0);
   const now = Date.now();
   rows.forEach((p) => {
     const t = p.date_posted || p.first_seen;
@@ -119,29 +119,43 @@ export default function Landing() {
   const [notif, setNotif] = useState("Notification settings");
 
   useEffect(() => {
+    const ctrl = new AbortController();
     document.title = "RUemployed";
     recordVisit("landing");
-    fetchPostings()
+    fetchPostings(ctrl.signal)
       .then(setData)
       .catch(() => {});
+    return () => ctrl.abort(); // cancel the in-flight request on unmount
   }, []);
 
   const loaded = data !== null;
-  const open = (data ?? []).filter(isOpen);
-  const cycle27 = open.filter((p) => {
-    const s = seasonOf(p);
-    return allowsBS(p) && (!s || s.includes("2027"));
-  });
-  const events = open.filter((p) => p.category === "event");
+
+  // Aggregates depend on `data` alone; memoized so typing in the repo-find
+  // box does not rebuild them on every keystroke.
+  const { open, cycle27, events, people, topics } = useMemo(() => {
+    const open = (data ?? []).filter(isOpen);
+    const cycle27 = open.filter((p) => {
+      const s = seasonOf(p);
+      return allowsBS(p) && (!s || s.includes("2027"));
+    });
+    const events = open.filter((p) => p.category === "event");
+
+    const byCompany = new Map<string, number>();
+    open.forEach((p) =>
+      byCompany.set(p.company, (byCompany.get(p.company) ?? 0) + 1),
+    );
+    const people = [...byCompany.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12);
+
+    const byRole = new Map<string, number>();
+    open.forEach((p) => byRole.set(p.role, (byRole.get(p.role) ?? 0) + 1));
+    const topics = [...byRole.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+    return { open, cycle27, events, people, topics };
+  }, [data]);
+
   const eventsLive = events.length > 0;
-
-  const byCompany = new Map<string, number>();
-  open.forEach((p) => byCompany.set(p.company, (byCompany.get(p.company) ?? 0) + 1));
-  const people = [...byCompany.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
-
-  const byRole = new Map<string, number>();
-  open.forEach((p) => byRole.set(p.role, (byRole.get(p.role) ?? 0) + 1));
-  const topics = [...byRole.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
 
   const show = (n: number) => (loaded ? String(n) : "…");
   const companiesOf = (rows: Posting[]) => new Set(rows.map((p) => p.company)).size;
@@ -227,6 +241,7 @@ export default function Landing() {
             <div className="findrow">
               <input
                 placeholder="Find a repository..."
+                aria-label="Find a repository"
                 value={findQ}
                 onChange={(e) => {
                   setFindQ(e.target.value);
