@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.local
+*.tsbuildinfo
+
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

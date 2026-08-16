@@ -1,0 +1,81 @@
+/* Listings page styles from web.py PAGE, scoped under .page-listings so the
+   two pages' class names (e.g. .rail) cannot collide in one SPA bundle. */
+
+.page-listings .layout { display:flex; gap:16px; max-width:1400px; margin:0 auto; padding:18px 20px 18px 8px; }
+.page-listings .sidebar { width:34px; flex-shrink:0; display:flex; flex-direction:column;
+                          overflow:hidden auto; transition:width .15s ease;
+                          position:sticky; top:12px; align-self:flex-start;
+                          max-height:calc(100vh - 24px); }
+.page-listings .sidebar:hover,
+.page-listings .layout.pinned .sidebar,
+.page-listings .layout.edge .sidebar { width:200px; }
+.page-listings .sidebar .rail { position:absolute; top:6px; left:8px; color:#8b949e; font-size:15px; }
+.page-listings .sidebar:hover .rail,
+.page-listings .layout.pinned .rail,
+.page-listings .layout.edge .rail { display:none; }
+.page-listings .side-inner { width:200px; opacity:0; transition:opacity .15s ease; display:flex;
+                             flex-direction:column; flex:1; }
+.page-listings .sidebar:hover .side-inner,
+.page-listings .layout.pinned .side-inner,
+.page-listings .layout.edge .side-inner { opacity:1; }
+.page-listings .main { flex:1; min-width:0; }
+.page-listings .side-section { margin-bottom:14px; }
+.page-listings .side-head { color:#8b949e; font-size:11.5px; font-weight:600; text-transform:uppercase;
+                            letter-spacing:.4px; margin:0 0 4px 8px; }
+.page-listings .side-select { width:100%; background:#1e1e1e; color:#e6edf3; border:1px solid #363636;
+                              border-radius:6px; padding:4px 8px; font-size:13px; }
+.page-listings .side-collapse { margin-top:auto; color:#8b949e; font-size:13px; cursor:pointer;
+                                padding:6px 8px; border-radius:6px; }
+.page-listings .side-collapse:hover { background:#1e1e1e; color:#e6edf3; }
+.page-listings .banner { border:1px solid #363636; border-radius:8px; padding:12px 16px; margin-bottom:12px;
+                         background:#1e1e1e; }
+.page-listings .banner h3 { margin:0 0 6px; font-size:15px; }
+.page-listings .banner .muted { color:#8b949e; font-size:13px; }
+.page-listings .banner input { background:#161616; color:#e6edf3; border:1px solid #363636;
+                               border-radius:6px; padding:5px 10px; margin-right:6px; font-size:13px; }
+.page-listings .banner button { background:#238636; color:#fff; border:1px solid #2ea04366; border-radius:6px;
+                                padding:5px 14px; cursor:pointer; font-size:13px; font-weight:600; }
+.page-listings .spotlights { display:flex; gap:12px; margin-bottom:12px; }
+.page-listings .spot { flex:1; border:1px solid #363636; border-radius:8px; padding:10px 14px; background:#1e1e1e; }
+.page-listings .spot .co { color:#8b949e; font-size:12px; }
+.page-listings .spot .t { font-weight:600; }
+.page-listings .searchrow { display:flex; gap:10px; margin-bottom:10px; }
+.page-listings .searchrow input { flex:1; background:#161616; color:#e6edf3; border:1px solid #363636;
+                                  border-radius:6px; padding:7px 12px; font-size:14px; }
+.page-listings .listhead { border:1px solid #363636; border-radius:8px 8px 0 0; background:#1e1e1e;
+                           padding:9px 16px; display:flex; gap:18px; align-items:center; font-size:13.5px; }
+.page-listings .listhead .tab { cursor:pointer; color:#8b949e; font-weight:600; }
+.page-listings .listhead .tab.on { color:#e6edf3; }
+.page-listings .listhead .right { margin-left:auto; color:#8b949e; }
+.page-listings .rows { border:1px solid #363636; border-top:none; border-radius:0 0 8px 8px; }
+.page-listings .issue { border-top:1px solid #2a2a2a; padding:9px 16px; }
+.page-listings .issue:first-child { border-top:none; }
+.page-listings .issue summary { list-style:none; cursor:pointer; }
+.page-listings .issue summary::-webkit-details-marker { display:none; }
+.page-listings .l1 { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; }
+.page-listings .dot { font-size:15px; line-height:1; position:relative; top:1px; }
+.page-listings .open .dot { color:#3fb950; }
+.page-listings .closed .dot { color:#f85149; }
+.page-listings .pend .dot { color:#d29922; }
+.page-listings .t { font-weight:600; font-size:15px; }
+.page-listings .lbl { padding:0 9px; border-radius:2em; font-size:11.5px; font-weight:500; line-height:19px;
+                      display:inline-block; border:1px solid; }
+.page-listings .cobox { background:#1f6feb1c; border:1px solid #1f6feb55; color:#79c0ff; font-weight:600;
+                        padding:2px 12px; border-radius:6px; font-size:12.5px; min-width:110px;
+                        text-align:center; flex-shrink:0; align-self:center; }
+.page-listings .lbl.country { border-color:#3fb95055; color:#7ee787; background:#3fb9501a; }
+.page-listings .lbl.season  { border-color:#d2992255; color:#e3b341; background:#d299221a; }
+.page-listings .lbl.role    { border-color:#bc8cff55; color:#d2a8ff; background:#bc8cff1a; }
+.page-listings .lbl.deg     { border-color:#4493f855; color:#79c0ff; background:#4493f81a; }
+.page-listings .lbl.src     { border-color:#363636; color:#8b949e; background:transparent; }
+.page-listings .lbl.aud     { border-color:#db61a255; color:#ff9bce; background:#db61a21a; }
+.page-listings .posted { margin-left:auto; color:#8b949e; font-size:12.5px; white-space:nowrap; }
+.page-listings .l2 { color:#8b949e; font-size:12.5px; margin-top:3px; padding-left:22px; }
+.page-listings .body { margin:10px 0 4px 22px; color:#9da7b3; font-size:13px; border-left:2px solid #363636;
+                       padding-left:14px; white-space:pre-wrap; }
+.page-listings .sugstat { color:#8b949e; font-size:12px; margin-top:8px; }
+
+/* Additive responsive fallback; desktop rendering is untouched. */
+@media (max-width: 900px) {
+  .page-listings .spotlights { flex-direction:column; }
+}
