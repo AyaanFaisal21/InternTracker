@@ -36,9 +36,9 @@ export interface Verdict {
 
 /**
  * One row of GET /api/postings.
- * Shape: schema.py Posting.model_dump(mode="json") plus two server-derived
- * fields, `countries` (countries_of(locations)) and `role`
- * (classify_role(title)).
+ * Shape: schema.py Posting.model_dump(mode="json") plus three
+ * server-derived fields: `countries` (countries_of(locations)), `remote`
+ * (is_remote(locations)), and `role` (classify_role(title)).
  */
 export interface Posting {
   id: string;
@@ -59,7 +59,8 @@ export interface Posting {
   status: PostingStatus;
   reject_reason: string | null;
   verdict: Verdict | null;
-  countries: string[]; // derived server-side
+  countries: string[]; // derived server-side; empty = region unknown
+  remote: boolean; // derived server-side
   role: string; // derived server-side
 }
 

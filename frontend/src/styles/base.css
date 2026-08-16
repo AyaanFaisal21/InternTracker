@@ -1,17 +1,8 @@
-/* BASE_CSS from web.py: shared by both pages. Global, unscoped. */
+/* Global, unscoped defaults from web.py: dark body and link colors. The
+   light pages override background and color on their own root, and every
+   page tops itself with the shared masthead from light.css. */
 
 * { box-sizing: border-box; }
 body { font: 14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
        margin: 0; background:#161616; color:#e6edf3; }
 a { color:#4493f8; text-decoration:none; } a:hover { text-decoration:underline; }
-.topbar { background:#2c090d; border-bottom:1px solid #4a1218; padding:10px 20px;
-          display:flex; align-items:center; gap:14px; }
-.burger { color:#c9a0a4; border:1px solid #5a1a20; border-radius:6px; padding:2px 8px;
-          font-size:15px; }
-.brand { font-size:15.5px; font-weight:600; color:#e6edf3; }
-.brand:hover { text-decoration:none; }
-.brand .ru { color:#f85149; }
-.crumb { color:#8b949e; font-weight:400; }
-.crumb a { color:#e6edf3; font-weight:600; }
-.topsearch { margin-left:auto; background:#1d0507; border:1px solid #363636; color:#8b949e;
-             border-radius:6px; padding:4px 12px; font-size:13px; width:240px; }

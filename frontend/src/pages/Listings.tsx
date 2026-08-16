@@ -18,7 +18,7 @@ import {
   postedLabel,
   seasonOf,
 } from "../postings";
-import TopBar from "../components/TopBar";
+import Masthead from "../components/Masthead";
 import "../styles/listings.css";
 
 import type { KeyboardEvent, ReactNode } from "react";
@@ -58,6 +58,10 @@ const FRESH_OPTS: Opt[] = FRESH.map((f) => [f[0], f[0]]);
 // Default country filter. Sentinel value, not a data string: it ORs the two
 // exact country names the server derives ("United States", "Canada").
 const US_CANADA = "us-ca";
+
+// "Remote" select option. Also a sentinel: it filters on the derived
+// boolean `remote`, not on membership in the countries list.
+const REMOTE = "remote";
 
 const PRESTIGE = [
   "jane street", "openai", "anthropic", "google", "apple", "nvidia", "stripe",
@@ -156,8 +160,6 @@ function Row({ p, seasonFilter }: { p: Posting; seasonFilter: string }) {
               {pill}
             </Fragment>
           ))}
-          {"   "}
-          {p.status}
         </div>
       </summary>
       <div className="body">
@@ -309,6 +311,7 @@ export default function Listings() {
     const countryOpts: Opt[] = [
       ["all", "all"],
       [US_CANADA, "US & Canada"],
+      [REMOTE, "Remote"],
       ...countries.map((c): Opt => [c, c]),
     ];
     const seasonOpts: Opt[] = [
@@ -376,11 +379,22 @@ export default function Listings() {
         if (h === null || h > limit) return false;
       }
     }
-    if (country === US_CANADA) {
+    if (country === REMOTE) {
+      if (!p.remote) return false;
+    } else if (country !== "all" && !p.remote) {
+      // Region selections narrow only rows that name a non-matching
+      // country. Rows with no derived country pass every region (mirror of
+      // the unknown-season rule below), and remote rows — the branch
+      // above — pass every region as well.
       const cs = p.countries ?? [];
-      if (!cs.includes("United States") && !cs.includes("Canada")) return false;
-    } else if (country !== "all" && !(p.countries ?? []).includes(country)) {
-      return false;
+      if (cs.length) {
+        if (country === US_CANADA) {
+          if (!cs.includes("United States") && !cs.includes("Canada"))
+            return false;
+        } else if (!cs.includes(country)) {
+          return false;
+        }
+      }
     }
     if (season !== "all") {
       const sv = seasonOf(p);
@@ -423,7 +437,7 @@ export default function Listings() {
 
   return (
     <div className="page-listings">
-      <TopBar />
+      <Masthead />
       <div className="layout">
         <div className="sidebar">
           <SideSelect head="Status" opts={statusOpts} value={tab} onChange={setTab} />

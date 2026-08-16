@@ -11,7 +11,7 @@
 .page-landing .cta { margin-top: 46px; display: flex; gap: 14px; flex-wrap: wrap; }
 .page-landing .btn { border: 1.5px solid var(--ink); border-radius: 2px; padding: 11px 26px;
                      font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
-.page-landing .btn:hover { text-decoration: none; background: rgba(109, 26, 26, 0.08); }
+.page-landing .btn:hover { text-decoration: none; background: var(--wash); }
 .page-landing .btn.solid { background: var(--ink); color: var(--paper); }
 .page-landing .btn.solid:hover { background: var(--scarlet); border-color: var(--scarlet); }
 
