@@ -22,6 +22,32 @@ from ..schema import RawDetection, Source
 LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
 HEADING_RE = re.compile(r"^#+\s*(.+?)\s*$")
 
+# The Name cell is "<company> <program/role words>" with no company
+# column, so the company is the prefix before the first program-ish
+# keyword. Keywords must follow whitespace: a leading keyword stays part
+# of the name ("Explore Program" does not empty out).
+_PROGRAM_CUT_RE = re.compile(
+    r"\s+(?:swe|sde|software|engineer\w*|developer\w*|intern\w*"
+    r"|winternship\w*|co[\s-]?op\b|fellow\w*|program\w*|scholar\w*"
+    r"|externship\w*|apprentice\w*|women(?:['’]?s)?|discovery|explore"
+    r"|insight|fttp|api)\b",
+    re.IGNORECASE,
+)
+
+
+def company_from_title(title: str) -> str:
+    """Company display name from a curated Name cell.
+
+    "Jane Street FTTP" -> "Jane Street"; "Coding it Forward's Fellowship"
+    -> "Coding it Forward"; a name with no program keyword ("Year Up",
+    "NASA") is itself the company. Never the old first-word cut, which
+    produced "Jane", "Coding", "Year", "Emma"."""
+    m = _PROGRAM_CUT_RE.search(title)
+    name = title[: m.start()] if m else title
+    name = name.strip(" \t-–—,:;")
+    name = re.sub(r"['’]s?$", "", name).strip()
+    return name or title.strip()
+
 SECTION_CATEGORY = {
     "internships": "internship",
     "winternships": "internship",
@@ -82,7 +108,7 @@ class MarkdownListDetector:
             out.append(
                 RawDetection(
                     source=Source.OPPORTUNITY_LIST,
-                    company=title.split()[0] if title else "",
+                    company=company_from_title(title),
                     title=title,
                     url=link,
                     category=category,

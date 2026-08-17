@@ -146,6 +146,37 @@ def test_markdown_list_parses_sections():
     dets = MarkdownListDetector([]).parse(md)
     assert len(dets) == 2  # linkless and closed rows skipped
     assert dets[0].title == "Dropbox SWE intern"
+    assert dets[0].company == "Dropbox"
     assert dets[0].category == "internship"
     assert dets[0].audience == ["underclassmen"]
     assert dets[1].season == "Winter"
+    assert dets[1].company == "Jane Street"  # first-word cut gave "Jane"
+
+
+def test_markdown_list_multiword_companies_survive():
+    # prod regression: 26 rows imported as "Jane", "Coding", "Year", "Emma"
+    from intake.detectors.markdown_lists import MarkdownListDetector, company_from_title
+
+    md = """
+## Internships
+| Name | Status/Open Date | Year | Note |
+| ---- | ---------------- | ---- | ---- |
+| [Jane Street FTTP](https://janestreet.com/f) | Open | Freshman | |
+| [Hudson River Trading Women in Trading Tech Internship](https://hrt.com/w) | Open | Sophomore | |
+| [Coding it Forward’s Fellowship](https://codingitforward.com/f) | Open | All | |
+| [Year Up](https://yearup.org/) | Open | All | |
+"""
+    dets = MarkdownListDetector([]).parse(md)
+    assert [d.company for d in dets] == [
+        "Jane Street", "Hudson River Trading", "Coding it Forward", "Year Up",
+    ]
+    # date_posted staying None is fine for lists; the company was the bug
+    assert all(d.date_posted is None for d in dets)
+    assert company_from_title("Emma Bowen Foundation Fellowship") == "Emma Bowen Foundation"
+    assert company_from_title("SIG Discovery Day") == "SIG"
+    assert company_from_title("Microsoft Explore (Freshman)") == "Microsoft"
+    assert company_from_title("Keploy API Fellowship") == "Keploy"
+    assert company_from_title("Virtu Women's Winternship") == "Virtu"
+    assert company_from_title("HRT Women in Trading Tech Internship") == "HRT"
+    assert company_from_title("MLH Fellowship") == "MLH"
+    assert company_from_title("NASA") == "NASA"
