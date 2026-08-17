@@ -8,10 +8,17 @@ Two pages, GitHub-styled:
 Routes:
   GET  /api/postings     JSON: all postings, newest first
   GET  /api/suggestions  JSON: recent suggestions with status
+  GET  /api/companies    JSON: companies with live postings + open counts
+  GET  /api/verify       confirm an email subscription (link from the email)
+  GET  /api/unsubscribe  one-click unsubscribe (link from the email)
   POST /api/suggest      queue a suggestion {kind, value, company?, keywords?}
   POST /api/visit        record a page open {page}
   POST /api/subscribe    create a notification subscription {channel, target, filters?}
-  POST /api/unsubscribe  deactivate a subscription {token}
+  POST /api/unsubscribe  deactivate a subscription {token}, or ?token= one-click
+
+The two GET links are clicked out of an email, so they answer with a small
+HTML page rather than JSON and take their token from the query string:
+a mail client can send neither a JSON body nor a header.
 
 NOTE: PAGE strings are plain Python strings. Backslash escapes inside
 embedded JS must be double-escaped or avoided; a stray \\n kills the script.
@@ -21,17 +28,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from .locations import countries_of, is_remote
+from .notify import build_filters, company_key
 from .resolve import COMPANY_MAX, clean_company, valid_company
 from .roles import classify_role
+from .schema import Status
+from .senders import clean_email, email_sender, valid_email
 from .store import open_store
+
+log = logging.getLogger("intake")
 
 BASE_CSS = """
   * { box-sizing: border-box; }
@@ -670,6 +684,110 @@ load(); setInterval(load, 30000);
 """
 
 
+# Landing page for a link clicked inside an email. No script and no fetch:
+# a mail client's browser opens it cold, often with images and JS off, and
+# the only job is to say what just happened.
+NOTICE_HEAD = """<!doctype html>
+<meta charset="utf-8">
+<title>Shortlist</title>
+<style>""" + BASE_CSS + """
+  .card { max-width:520px; margin:12vh auto; border:1px solid #363636; border-radius:8px;
+          background:#1e1e1e; padding:24px 26px; }
+  .card h1 { font-size:20px; font-weight:600; margin:0 0 10px; }
+  .card p { color:#8b949e; margin:0 0 10px; }
+</style>
+"""
+
+
+def notice_page(heading: str, body: str) -> bytes:
+    """One small self-contained page. Never echoes the token."""
+    return (NOTICE_HEAD + f"""<div class="card">
+  <h1>{heading}</h1>
+  <p>{body}</p>
+  <p><a href="/listings">Browse the board</a></p>
+</div>
+""").encode()
+
+
+VERIFIED_PAGE = notice_page(
+    "Alerts confirmed",
+    "This address is confirmed. New postings that match your companies "
+    "arrive in one message per poll cycle, and every message carries an "
+    "unsubscribe link.",
+)
+UNSUBSCRIBED_PAGE = notice_page(
+    "Unsubscribed",
+    "This subscription is off. Nothing further will be sent to it, and "
+    "there is nothing else to confirm.",
+)
+BAD_LINK_PAGE = notice_page(
+    "Link not recognized",
+    "This link is not valid. It may already have been used, or the "
+    "subscription may have expired unconfirmed.",
+)
+
+# /api/companies scans every posting, so the answer is cached briefly and
+# shared by every client. 60 s is short against a 120 s poll cycle: nothing
+# a subscriber could pick is more than one cycle stale.
+COMPANIES_TTL_S = 60.0
+_companies_cache: tuple[float, list[dict]] | None = None
+_companies_lock = threading.Lock()
+
+
+def live_companies(store) -> list[dict]:
+    """Companies with at least one live (non-rejected) posting, busiest first.
+
+    Folded on notify.company_key, so one employer is one row whatever the
+    detectors spelled it, and the row shows the spelling most postings
+    carry. This is the list the subscribe form autocompletes against, and
+    that is the whole point: a name picked from here provably matches rows,
+    which is what stops someone typing "Googel" and waiting weeks for mail
+    that was never going to come.
+    """
+    global _companies_cache
+    now = time.monotonic()
+    with _companies_lock:
+        if _companies_cache and now - _companies_cache[0] < COMPANIES_TTL_S:
+            return _companies_cache[1]
+
+    spellings: dict[str, dict[str, int]] = {}
+    for p in store.all_postings():
+        if p.status == Status.REJECTED:
+            continue
+        seen = spellings.setdefault(company_key(p.company), {})
+        seen[p.company] = seen.get(p.company, 0) + 1
+    rows = [
+        # max over a sorted list of spellings: ties resolve alphabetically
+        # rather than by dict order, so the answer does not wobble.
+        {"name": max(sorted(seen), key=lambda s: seen[s]), "postings": sum(seen.values())}
+        for key, seen in spellings.items() if key
+    ]
+    rows.sort(key=lambda r: (-r["postings"], r["name"].lower()))
+    with _companies_lock:
+        _companies_cache = (now, rows)
+    return rows
+
+
+def reset_companies_cache() -> None:
+    """Drop the cached list. For tests, which share this process-wide state."""
+    global _companies_cache
+    with _companies_lock:
+        _companies_cache = None
+
+
+def company_matches(store, companies: list[str]) -> dict[str, int]:
+    """Live posting count per requested company, keyed by the subscriber's
+    own spelling.
+
+    Zero is a legitimate answer, not an error: someone may want a company we
+    have not detected yet, and the subscription is created either way. The
+    number exists so the UI can say "we track no open postings there yet"
+    instead of leaving a person to conclude it from silence.
+    """
+    live = {company_key(r["name"]): r["postings"] for r in live_companies(store)}
+    return {c: live.get(company_key(c), 0) for c in companies}
+
+
 class RateLimiter:
     """Sliding-window per-key limiter. In-process is enough: one web
     container, and the goal is abuse resistance, not precision."""
@@ -701,6 +819,17 @@ SUGGEST_LIMIT = RateLimiter(limit=5, window_s=60.0)
 VISIT_LIMIT = RateLimiter(limit=30, window_s=60.0)
 SUBSCRIBE_LIMIT = RateLimiter(limit=5, window_s=60.0)
 UNSUBSCRIBE_LIMIT = RateLimiter(limit=30, window_s=60.0)
+# A full scan behind a cache, and a token-guessing surface. Both are cheap
+# per request and neither is a thing one client needs 30 times a minute.
+COMPANIES_LIMIT = RateLimiter(limit=30, window_s=60.0)
+VERIFY_LIMIT = RateLimiter(limit=30, window_s=60.0)
+# Confirmations are limited per recipient as well as per client, because the
+# two limits stop different things. A rotating client passes the per-IP
+# window while mailing one victim over and over, and a stream of unwanted
+# confirmations is both a mail bomb and the shortest path to the complaint
+# rate that costs an SES account its sending. Keyed on a hash of the
+# address, so the limiter's memory holds no addresses.
+CONFIRM_LIMIT = RateLimiter(limit=2, window_s=3600.0)
 
 # A rate limiter caps one client; it does not stop a rotating one. Collapsing
 # repeat submissions is what keeps the resolver's cost proportional to
@@ -743,11 +872,12 @@ def visitor_hash(salt: str, ip: str, ua: str) -> str:
 def make_handler(db_path: Path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/":
+            path = self.path.split("?")[0]
+            if path == "/":
                 self._send(200, LANDING.encode(), "text/html; charset=utf-8")
-            elif self.path.split("?")[0] == "/listings":
+            elif path == "/listings":
                 self._send(200, PAGE.encode(), "text/html; charset=utf-8")
-            elif self.path.startswith("/api/postings"):
+            elif path == "/api/postings":
                 store = open_store(db_path)  # sqlite: per-request; postgres: shared
                 rows = []
                 for p in store.all_postings():
@@ -758,11 +888,47 @@ def make_handler(db_path: Path):
                     rows.append(d)
                 body = json.dumps(rows).encode()
                 self._send(200, body, "application/json")
-            elif self.path.startswith("/api/suggestions"):
+            elif path == "/api/suggestions":
                 store = open_store(db_path)
                 self._send(200, json.dumps(store.recent_suggestions()).encode(), "application/json")
+            elif path == "/api/companies":
+                if not COMPANIES_LIMIT.allow(self._client_ip()):
+                    self._send(429, b"slow down", "text/plain")
+                    return
+                rows = live_companies(open_store(db_path))
+                self._send(200, json.dumps(rows).encode(), "application/json")
+            elif path == "/api/verify":
+                if not VERIFY_LIMIT.allow(self._client_ip()):
+                    self._send(429, b"slow down", "text/plain")
+                    return
+                token = self._query_token()
+                ok = bool(token) and open_store(db_path).verify_by_token(token)
+                self._send_page(ok, VERIFIED_PAGE)
+            elif path == "/api/unsubscribe":
+                # A link click, so it acts immediately and asks nothing: an
+                # unsubscribe has to be free and simple (CAN-SPAM), and a
+                # confirmation step is neither. Idempotent by nature, since
+                # deactivating an inactive row is the same write.
+                if not UNSUBSCRIBE_LIMIT.allow(self._client_ip()):
+                    self._send(429, b"slow down", "text/plain")
+                    return
+                token = self._query_token()
+                ok = bool(token) and open_store(db_path).deactivate_by_token(token)
+                self._send_page(ok, UNSUBSCRIBED_PAGE)
             else:
                 self._send(404, b"not found", "text/plain")
+
+        def _query_token(self) -> str:
+            """The token from the query string, or "" when absent or absurd.
+            Email clients can send a link click and nothing else, so verify
+            and unsubscribe carry theirs here."""
+            q = parse_qs(urlsplit(self.path).query)
+            token = (q.get("token") or [""])[0].strip()
+            return token if 0 < len(token) <= 64 else ""
+
+        def _send_page(self, ok: bool, page: bytes) -> None:
+            self._send(200 if ok else 404, page if ok else BAD_LINK_PAGE,
+                       "text/html; charset=utf-8")
 
         def _client_ip(self) -> str:
             fwd = self.headers.get("X-Forwarded-For", "")
@@ -841,24 +1007,78 @@ def make_handler(db_path: Path):
                     or not isinstance(companies, list) or len(companies) > 20
                     or any(
                         not isinstance(c, str) or not c.strip() or len(c) > 80
+                        # A name that normalizes to nothing ("...") would
+                        # store an empty key, and an empty key set means
+                        # every company: refuse it rather than silently
+                        # subscribing someone to the entire board.
+                        or not company_key(c)
                         for c in companies
                     )
                 ):
                     self._send(400, b"bad request", "text/plain")
                     return
+                if channel == "email":
+                    # An address is typed by whoever is at the keyboard, who
+                    # may not be its owner, so it is validated at the door
+                    # and confirmed by mail before anything is sent to it.
+                    target = clean_email(target)
+                    if not valid_email(target):
+                        self._send(400, b"bad request", "text/plain")
+                        return
+                companies = [c.strip() for c in companies]
                 store = open_store(db_path)
-                sid, token = store.add_subscription(
-                    channel, target, {"companies": companies} if companies else {}
+                sid, token, verify_token = store.add_subscription(
+                    channel, target, build_filters(companies)
                 )
-                self._send(200, json.dumps({"id": sid, "token": token}).encode(), "application/json")
-            elif self.path == "/api/unsubscribe":
+                sent = False
+                if channel == "email":
+                    sender = email_sender()
+                    recipient = hashlib.sha256(target.lower().encode()).hexdigest()[:16]
+                    if sender is None:
+                        log.warning(
+                            "subscription %s created but no email channel is "
+                            "configured, so no confirmation was sent", sid,
+                        )
+                    elif not CONFIRM_LIMIT.allow(recipient):
+                        # The row still exists and its link still works if the
+                        # earlier confirmation was wanted; if it was not, the
+                        # prune deletes it. Either way this address is not
+                        # mailed again right now.
+                        log.warning(
+                            "subscription %s: confirmation suppressed, this "
+                            "address was mailed one recently", sid,
+                        )
+                    else:
+                        sent = sender.send_confirmation({
+                            "id": sid, "target": target,
+                            "token": token, "verify_token": verify_token,
+                        })
+                self._send(200, json.dumps({
+                    "id": sid,
+                    "token": token,
+                    "channel": channel,
+                    # Email waits for the click; push carries the browser's
+                    # own permission grant and is live immediately.
+                    "pending_verification": channel == "email",
+                    "verification_sent": sent,
+                    "matches": company_matches(store, companies),
+                }).encode(), "application/json")
+            elif self.path.split("?")[0] == "/api/unsubscribe":
                 if not UNSUBSCRIBE_LIMIT.allow(self._client_ip()):
                     self._send(429, b"slow down", "text/plain")
                     return
-                body = self._json_body()
-                if body is None:
-                    return
-                token = str(body.get("token", "")).strip()
+                # Two callers. The frontend posts {token} as JSON. A mail
+                # client doing RFC 8058 one-click posts the emailed URL with
+                # a form body we have no use for, so the query string wins
+                # when it carries a token and the body is drained unread.
+                token = self._query_token()
+                if token:
+                    self._drain_body()
+                else:
+                    body = self._json_body()
+                    if body is None:
+                        return
+                    token = str(body.get("token", "")).strip()
                 if not token or len(token) > 64:
                     self._send(400, b"bad request", "text/plain")
                     return
@@ -874,6 +1094,17 @@ def make_handler(db_path: Path):
             except (ValueError, json.JSONDecodeError):
                 self._send(400, b"bad request", "text/plain")
                 return None
+
+        def _drain_body(self) -> None:
+            """Read and discard the request body. A one-click unsubscribe
+            carries a form body this endpoint ignores, and an unread body
+            desynchronizes the next request on a keep-alive connection."""
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                return
+            if length > 0:
+                self.rfile.read(min(length, 8192))
 
         def _send(self, code: int, body: bytes, ctype: str):
             self.send_response(code)

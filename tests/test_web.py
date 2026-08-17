@@ -1,7 +1,13 @@
 """Web server tests: real HTTP server on an ephemeral port, real store.
-Covers the dashboard smoke path, the subscription endpoints, the visit
-beacon's privacy contract, and the suggestion endpoint's spend defenses
-(validation and duplicate collapsing).
+Covers the dashboard smoke path, the company list the subscribe form
+autocompletes against, the subscription endpoints including the double
+opt-in and the email-clickable links, the visit beacon's privacy contract,
+and the suggestion endpoint's spend defenses (validation and duplicate
+collapsing).
+
+No mail can leave: every test that reaches the subscribe endpoint replaces
+web.email_sender with a recorder, so the result does not depend on whether
+the optional boto3 extra happens to be installed.
 
 Skips when the environment forbids loopback connections (some sandboxes do).
 """
@@ -10,6 +16,7 @@ import socket
 import threading
 import time
 from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -27,12 +34,35 @@ def loopback_blocked() -> bool:
     finally:
         probe.close()
 
-from intake.schema import RawDetection, Source
+from intake.schema import RawDetection, Source, Status
 from intake.store import Store
-from intake.web import SUGGEST_LIMIT, VISIT_LIMIT, make_handler, visitor_hash
+from intake.web import (
+    COMPANIES_LIMIT,
+    CONFIRM_LIMIT,
+    SUBSCRIBE_LIMIT,
+    SUGGEST_LIMIT,
+    UNSUBSCRIBE_LIMIT,
+    VERIFY_LIMIT,
+    VISIT_LIMIT,
+    make_handler,
+    reset_companies_cache,
+    visitor_hash,
+)
 
 MAC = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+
+
+class Mailbox:
+    """Stands in for senders.EmailSender at the subscribe endpoint."""
+
+    def __init__(self, ok=True):
+        self.ok = ok
+        self.sent: list[dict] = []
+
+    def send_confirmation(self, sub: dict) -> bool:
+        self.sent.append(sub)
+        return self.ok
 
 
 def serve(db):
@@ -174,6 +204,10 @@ def test_visit_beacon_honors_its_rate_limit(tmp_path):
 def test_subscribe_and_unsubscribe_endpoints(tmp_path):
     db = tmp_path / "s.db"
     Store(db)  # create the schema before the first request
+    SUBSCRIBE_LIMIT.reset()
+    CONFIRM_LIMIT.reset()
+    reset_companies_cache()
+    mailbox = Mailbox()
 
     server, base = serve(db)
     try:
@@ -190,16 +224,28 @@ def test_subscribe_and_unsubscribe_endpoints(tmp_path):
         for payload in bad:
             assert httpx.post(f"{base}/api/subscribe", json=payload).status_code == 400
 
-        r = httpx.post(f"{base}/api/subscribe", json={
-            "channel": "email", "target": "af@scarletmail.rutgers.edu",
-            "filters": {"companies": ["NVIDIA"]},
-        })
+        with patch("intake.web.email_sender", return_value=mailbox):
+            r = httpx.post(f"{base}/api/subscribe", json={
+                "channel": "email", "target": "af@scarletmail.rutgers.edu",
+                "filters": {"companies": ["NVIDIA"]},
+            })
         assert r.status_code == 200
         created = r.json()
         assert created["id"] >= 1 and len(created["token"]) == 32
+        assert created["pending_verification"] is True
+        assert created["verification_sent"] is True
+        assert created["matches"] == {"NVIDIA": 0}   # nothing detected yet
         subs = Store(db).active_subscriptions()
         assert subs[0]["channel"] == "email"
-        assert subs[0]["filters"] == {"companies": ["NVIDIA"]}
+        # What the subscriber typed, plus the key the fan-out compares on.
+        assert subs[0]["filters"] == {"companies": ["NVIDIA"],
+                                      "company_keys": ["nvidia"]}
+        assert subs[0]["verified"] is False   # nothing is sent until confirmed
+        # Exactly one confirmation, carrying the verify secret and never the
+        # unsubscribe secret in its place.
+        assert len(mailbox.sent) == 1
+        assert mailbox.sent[0]["target"] == "af@scarletmail.rutgers.edu"
+        assert mailbox.sent[0]["verify_token"] != created["token"]
 
         # Sixth request in the window hits the limiter.
         assert httpx.post(f"{base}/api/subscribe", json={
@@ -214,6 +260,167 @@ def test_subscribe_and_unsubscribe_endpoints(tmp_path):
         miss = httpx.post(f"{base}/api/unsubscribe", json={"token": "0" * 32})
         assert miss.status_code == 200 and miss.json() == {"ok": False}
     finally:
+        SUBSCRIBE_LIMIT.reset()
+        CONFIRM_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_subscribe_refuses_addresses_that_cannot_receive_mail(tmp_path):
+    db = tmp_path / "e.db"
+    Store(db)
+    SUBSCRIBE_LIMIT.reset()
+    server, base = serve(db)
+    try:
+        # Anyone can type anything here, including a header-injection
+        # attempt, so the shape is judged before a row exists.
+        bad = ["nobody", "a@b", "a b@example.com",
+               "a@b.edu\r\nBcc: victim@example.com", "x" * 250 + "@example.com"]
+        for target in bad:
+            r = httpx.post(f"{base}/api/subscribe",
+                           json={"channel": "email", "target": target})
+            assert r.status_code == 400, target
+        assert Store(db).active_subscriptions() == []
+    finally:
+        SUBSCRIBE_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_one_address_cannot_be_mailed_confirmations_repeatedly(tmp_path):
+    db = tmp_path / "flood.db"
+    Store(db)
+    SUBSCRIBE_LIMIT.reset()
+    CONFIRM_LIMIT.reset()
+    mailbox = Mailbox()
+    server, base = serve(db)
+    try:
+        results = []
+        with patch("intake.web.email_sender", return_value=mailbox):
+            for i in range(3):
+                # Three different clients, one victim address: the per-IP
+                # window never fires, so the per-recipient one has to.
+                results.append(httpx.post(
+                    f"{base}/api/subscribe",
+                    json={"channel": "email", "target": "victim@example.edu"},
+                    headers={"X-Forwarded-For": f"198.51.100.{i}"},
+                ).json())
+        assert [r["verification_sent"] for r in results] == [True, True, False]
+        assert len(mailbox.sent) == 2
+        # The rows still exist and expire on their own; only the mail stopped.
+        assert len(Store(db).active_subscriptions()) == 3
+    finally:
+        SUBSCRIBE_LIMIT.reset()
+        CONFIRM_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_companies_endpoint_and_subscribe_match_counts(tmp_path):
+    db = tmp_path / "co.db"
+    store = Store(db)
+    SUBSCRIBE_LIMIT.reset()
+    COMPANIES_LIMIT.reset()
+    CONFIRM_LIMIT.reset()
+    reset_companies_cache()
+    for company, title in [("NVIDIA", "SWE Intern"), ("NVIDIA", "ML Intern"),
+                           ("NVIDIA Corp", "Systems Intern"),
+                           ("Stripe", "SWE Intern"), ("Ghost Co", "Fake Intern")]:
+        store.upsert_detection(RawDetection(
+            source=Source.GREENHOUSE, company=company, title=title,
+            url=f"https://x.co/{company}/{title}",
+        ))
+    dead = next(p for p in store.by_status(Status.PENDING) if p.company == "Ghost Co")
+    dead.status = Status.REJECTED
+    store.update(dead)
+
+    server, base = serve(db)
+    try:
+        r = httpx.get(f"{base}/api/companies")
+        assert r.status_code == 200
+        # One row per employer whatever the detectors spelled it, richest
+        # first, and a rejected-only company is not offered at all.
+        assert r.json() == [{"name": "NVIDIA", "postings": 3},
+                            {"name": "Stripe", "postings": 1}]
+
+        # The same fold decides the subscribe response, so a name picked out
+        # of the list above always reports a non-zero count, and a company
+        # we do not track yet reports zero instead of silently matching.
+        with patch("intake.web.email_sender", return_value=Mailbox()):
+            created = httpx.post(f"{base}/api/subscribe", json={
+                "channel": "email", "target": "a@b.edu",
+                "filters": {"companies": ["nvidia corp.", "Datadog"]},
+            }).json()
+        assert created["matches"] == {"nvidia corp.": 3, "Datadog": 0}
+        assert Store(db).active_subscriptions()[0]["filters"]["company_keys"] == [
+            "datadog", "nvidia"]
+    finally:
+        SUBSCRIBE_LIMIT.reset()
+        COMPANIES_LIMIT.reset()
+        CONFIRM_LIMIT.reset()
+        reset_companies_cache()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_verify_and_unsubscribe_work_as_plain_link_clicks(tmp_path):
+    db = tmp_path / "lnk.db"
+    store = Store(db)
+    VERIFY_LIMIT.reset()
+    UNSUBSCRIBE_LIMIT.reset()
+    sid, token, verify_token = store.add_subscription("email", "a@b.edu", {})
+
+    server, base = serve(db)
+    try:
+        # A mail client can send a link click and nothing else: no JSON body,
+        # no header, so both tokens travel in the query string and both
+        # answers are HTML.
+        page = httpx.get(f"{base}/api/verify?token={verify_token}")
+        assert page.status_code == 200
+        assert page.headers["content-type"].startswith("text/html")
+        assert "Alerts confirmed" in page.text and verify_token not in page.text
+        assert Store(db).active_subscriptions()[0]["verified"] is True
+
+        # Idempotent: a second click still confirms rather than erroring.
+        assert httpx.get(f"{base}/api/verify?token={verify_token}").status_code == 200
+        bad = httpx.get(f"{base}/api/verify?token={'0' * 32}")
+        assert bad.status_code == 404 and "not recognized" in bad.text
+        assert httpx.get(f"{base}/api/verify").status_code == 404
+
+        off = httpx.get(f"{base}/api/unsubscribe?token={token}")
+        assert off.status_code == 200 and "Unsubscribed" in off.text
+        assert Store(db).active_subscriptions() == []
+        # No confirmation step and no second thought: unsubscribing has to
+        # be free and simple, and repeating it changes nothing.
+        again = httpx.get(f"{base}/api/unsubscribe?token={token}")
+        assert again.status_code == 200 and "Unsubscribed" in again.text
+        assert Store(db).active_subscriptions() == []
+        assert httpx.get(f"{base}/api/unsubscribe?token=nope").status_code == 404
+    finally:
+        VERIFY_LIMIT.reset()
+        UNSUBSCRIBE_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_one_click_unsubscribe_post_carries_its_token_in_the_query(tmp_path):
+    db = tmp_path / "occ.db"
+    store = Store(db)
+    UNSUBSCRIBE_LIMIT.reset()
+    _, token, _ = store.add_subscription("email", "a@b.edu", {})
+
+    server, base = serve(db)
+    try:
+        # RFC 8058: the mail client POSTs the List-Unsubscribe URL with a
+        # form body. The body is not JSON and is never read, so the endpoint
+        # must not 400 on it.
+        r = httpx.post(f"{base}/api/unsubscribe?token={token}",
+                       content=b"List-Unsubscribe=One-Click",
+                       headers={"Content-Type": "application/x-www-form-urlencoded"})
+        assert r.status_code == 200 and r.json() == {"ok": True}
+        assert Store(db).active_subscriptions() == []
+    finally:
+        UNSUBSCRIBE_LIMIT.reset()
         server.shutdown()
 
 

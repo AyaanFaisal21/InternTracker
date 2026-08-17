@@ -8,8 +8,8 @@ Flow per cycle:
      record when an ATS job key or near-equal titles prove one posting;
      the extras are REJECTED as duplicates.
   5. GATED postings go to the verifier agent. Verdict sets VERIFIED or REJECTED.
-  6. VERIFIED postings are handed to the publisher hook, then matching
-     notification subscriptions get one send each (notify.py).
+  6. VERIFIED postings are handed to the publisher hook, then every matching
+     subscription gets ONE notification carrying the whole batch (notify.py).
 
 No posting reaches the publisher without a stored verdict.
 """
@@ -24,7 +24,7 @@ from urllib.parse import unquote, urlsplit
 
 import httpx
 
-from .config import Settings
+from .config import Settings, load_notify_settings
 from .dates import parse_iso, parse_season
 from .detectors import (
     BROWSER_DETECTORS,
@@ -39,8 +39,9 @@ from .detectors import (
     SuggestionDetector,
     WorkdayDetector,
 )
-from .notify import LogSender, Sender, notify_new_posting
+from .notify import Sender, notify_new_postings
 from .schema import Posting, Status
+from .senders import build_sender
 from .store import Store, open_store
 from .verify import VerifierAgent, run_rules
 
@@ -275,7 +276,11 @@ class Pipeline:
         ]
         self.verifier = verifier or VerifierAgent(settings)
         self.publisher = publisher
-        self.sender = sender or LogSender()
+        # One delivery config per process, not per cycle. build_sender gives
+        # the SES sender where boto3 and a region exist and the LogSender
+        # placeholder everywhere else, so a laptop cycle stays offline.
+        self.notify = load_notify_settings()
+        self.sender = sender or build_sender(self.notify, store=self.store)
         self.http = httpx.Client(
             follow_redirects=True,
             headers={
@@ -334,6 +339,13 @@ class Pipeline:
             ),
         )
 
+        # Unconfirmed email subscriptions expire. This sits above the
+        # no-verify return on purpose: production runs --no-verify, and an
+        # address nobody confirmed must still stop being stored there.
+        pruned = self.store.prune_unverified()
+        if pruned:
+            log.info("PRUNE %d unverified subscription(s)", pruned)
+
         if not verify:
             return report
 
@@ -358,10 +370,11 @@ class Pipeline:
                 report.agent_rejected += 1
             self.store.update(p)
 
-        # 6: publish + notification fan-out
-        verified = self.store.by_status(Status.VERIFIED)
-        subs = self.store.active_subscriptions() if verified else []
-        for p in verified:
+        # 6: publish, then one notification per subscriber for the whole
+        # batch. Fanning out per posting would turn a twenty-posting cycle
+        # into twenty emails to the same inbox.
+        published: list[Posting] = []
+        for p in self.store.by_status(Status.VERIFIED):
             try:
                 self.publisher(p)
             except Exception as e:
@@ -370,9 +383,15 @@ class Pipeline:
             p.status = Status.PUBLISHED
             self.store.update(p)
             report.published += 1
+            published.append(p)
+
+        if published:
             try:
-                notify_new_posting(subs, p, self.sender)
+                notify_new_postings(
+                    self.store.active_subscriptions(), published, self.sender,
+                    self.store, self.notify.daily_cap,
+                )
             except Exception as e:  # a sender crash must not kill the cycle
-                report.errors.append(f"notify {p.id}: {e}")
+                report.errors.append(f"notify: {e}")
 
         return report

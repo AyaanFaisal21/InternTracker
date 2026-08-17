@@ -334,18 +334,20 @@ class PostgresStore:
 
     # -- subscriptions ----------------------------------------------------
 
-    def add_subscription(self, channel: str, target: str, filters: dict) -> tuple[int, str]:
+    def add_subscription(self, channel: str, target: str, filters: dict) -> tuple[int, str, str]:
+        """Same contract as the SQLite store: (id, token, verify_token), the
+        row unverified until the emailed link is clicked."""
         # token is unique, so the once-retry in _run cannot silently
         # double-insert; a replayed INSERT errors instead.
-        token = uuid.uuid4().hex
+        token, verify_token = uuid.uuid4().hex, uuid.uuid4().hex
         sid = self._run(
             lambda c: c.execute(
-                "INSERT INTO subscriptions (channel, target, filters, token) "
-                "VALUES (%s,%s,%s,%s) RETURNING id",
-                (channel, target, Jsonb(filters), token),
+                "INSERT INTO subscriptions (channel, target, filters, token, verify_token) "
+                "VALUES (%s,%s,%s,%s,%s) RETURNING id",
+                (channel, target, Jsonb(filters), token, verify_token),
             ).fetchone()["id"]
         )
-        return sid, token
+        return sid, token, verify_token
 
     def deactivate_by_token(self, token: str) -> bool:
         return self._run(
@@ -353,6 +355,48 @@ class PostgresStore:
                 "UPDATE subscriptions SET active = false WHERE token = %s",
                 (token,),
             ).rowcount > 0
+        )
+
+    def verify_by_token(self, verify_token: str) -> bool:
+        """Idempotent double opt-in flip; True when the token named a row."""
+        return self._run(
+            lambda c: c.execute(
+                "UPDATE subscriptions SET verified = true WHERE verify_token = %s",
+                (verify_token,),
+            ).rowcount > 0
+        )
+
+    def prune_unverified(self, days: int = 7) -> int:
+        """Delete email subscriptions that never confirmed. Same reasoning as
+        the SQLite store: an address that never opted in is not ours to keep."""
+        return self._run(
+            lambda c: c.execute(
+                "DELETE FROM subscriptions WHERE channel = 'email' AND NOT verified "
+                "AND created_at < now() - make_interval(days => %s)",
+                (int(days),),
+            ).rowcount
+        )
+
+    def notify_sends_today(self, sub_id: int) -> int:
+        row = self._run(
+            lambda c: c.execute(
+                "SELECT sends FROM notify_sends WHERE day = %s AND subscription_id = %s",
+                (utc_day(), sub_id),
+            ).fetchone()
+        )
+        return row["sends"] if row else 0
+
+    def count_notify_send(self, sub_id: int) -> int:
+        # Non-idempotent, like count_resolver_call, so _run's reconnect retry
+        # can over-count by one. That direction is the safe one: an
+        # over-count sends one message fewer, an under-count sends one more.
+        return self._run(
+            lambda c: c.execute(
+                "INSERT INTO notify_sends (day, subscription_id, sends) VALUES (%s,%s,1) "
+                "ON CONFLICT(day, subscription_id) DO UPDATE SET "
+                "sends = notify_sends.sends + 1 RETURNING sends",
+                (utc_day(), sub_id),
+            ).fetchone()["sends"]
         )
 
     def active_subscriptions(self) -> list[dict]:

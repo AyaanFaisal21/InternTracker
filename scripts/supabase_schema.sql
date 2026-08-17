@@ -159,3 +159,32 @@ create table if not exists visit_salts (
 -- addresses. visits already runs RLS with no policies, so the hashes
 -- themselves stay off the anon REST surface as well.
 alter table visit_salts enable row level security;
+
+-- Double opt-in for email subscriptions (src/intake/senders.py). A form is
+-- public, so anyone can type someone else's address into it: the row is
+-- created unverified and receives nothing until the emailed link is
+-- clicked, which is what keeps the site from being an abuse vector and
+-- keeps our sending reputation ours. verify_token only ever exists inside
+-- that one email; unique so a click resolves to exactly one row, and
+-- nullable because rows written before double opt-in existed have none
+-- (Postgres treats nulls as distinct under a unique index).
+alter table subscriptions add column if not exists verified boolean not null default false;
+alter table subscriptions add column if not exists verify_token text;
+create unique index if not exists subscriptions_verify_token_idx
+    on subscriptions (verify_token);
+
+-- Per-subscriber daily send ceiling (notify.notify_new_postings). Durable
+-- rather than in-process for the same reason as resolver_spend: the poller
+-- restarts on every deploy, and an in-memory counter would hand a fresh
+-- allowance to anyone who can make it restart.
+create table if not exists notify_sends (
+    day             date not null,          -- UTC day the sends were made
+    subscription_id bigint not null,
+    sends           integer not null default 0,
+    primary key (day, subscription_id)
+);
+
+-- RLS on with no policies, same reasoning as subscriptions: who was mailed
+-- and how often is internal. The API server and the poller own these rows
+-- through a role that bypasses RLS.
+alter table notify_sends enable row level security;

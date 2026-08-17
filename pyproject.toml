@@ -14,6 +14,7 @@ dependencies = [
 dev = ["pytest>=8.0"]
 browser = ["playwright"]
 postgres = ["psycopg[binary]>=3.2"]
+email = ["boto3>=1.34"]   # SES delivery; absent means notifications log only
 
 [project.scripts]
 intake = "intake.cli:main"

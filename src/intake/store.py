@@ -117,13 +117,29 @@ CREATE TABLE IF NOT EXISTS resolver_spend (
 );
 
 CREATE TABLE IF NOT EXISTS subscriptions (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    channel    TEXT NOT NULL,               -- 'push' | 'email'
-    target     TEXT NOT NULL,               -- push endpoint JSON or email address
-    filters    TEXT NOT NULL DEFAULT '{}',  -- JSON {"companies": [...]}; '{}' = all
-    token      TEXT NOT NULL UNIQUE,        -- opaque unsubscribe secret (uuid4 hex)
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    active     INTEGER NOT NULL DEFAULT 1
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel      TEXT NOT NULL,               -- 'push' | 'email'
+    target       TEXT NOT NULL,               -- push endpoint JSON or email address
+    filters      TEXT NOT NULL DEFAULT '{}',  -- JSON {"companies": [...], "company_keys": [...]}; '{}' = all
+    token        TEXT NOT NULL UNIQUE,        -- opaque unsubscribe secret (uuid4 hex)
+    verify_token TEXT,                        -- double opt-in secret; only ever inside the email
+    verified     INTEGER NOT NULL DEFAULT 0,  -- email: the confirmation link was clicked
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    active       INTEGER NOT NULL DEFAULT 1
+);
+
+-- The unique index on verify_token is created in _migrate, after the column
+-- exists: this script also runs against files written before it did.
+
+-- Durable per-UTC-day send counter, one row per subscriber per day. Durable
+-- and not in-process for the same reason as resolver_spend: the poller
+-- restarts on every deploy, and an in-memory counter would hand a fresh
+-- allowance to anyone who can make it restart.
+CREATE TABLE IF NOT EXISTS notify_sends (
+    day             TEXT NOT NULL,           -- YYYY-MM-DD, UTC
+    subscription_id INTEGER NOT NULL,
+    sends           INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, subscription_id)
 );
 """
 
@@ -164,6 +180,19 @@ class Store:
             self.conn.execute(
                 "ALTER TABLE postings ADD COLUMN audience TEXT NOT NULL DEFAULT '[]'"
             )
+        scols = {r[1] for r in self.conn.execute("PRAGMA table_info(subscriptions)")}
+        if "verify_token" not in scols:
+            self.conn.execute("ALTER TABLE subscriptions ADD COLUMN verify_token TEXT")
+        if "verified" not in scols:
+            self.conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN verified INTEGER NOT NULL DEFAULT 0"
+            )
+        # NULLs stay distinct under a SQLite unique index, so rows created
+        # before double opt-in existed keep their empty verify_token.
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_verify_token_idx "
+            "ON subscriptions (verify_token)"
+        )
         vcols = {r[1] for r in self.conn.execute("PRAGMA table_info(visits)")}
         if "visitor_hash" not in vcols:
             self.conn.execute("ALTER TABLE visits ADD COLUMN visitor_hash TEXT")
@@ -339,14 +368,22 @@ class Store:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def add_subscription(self, channel: str, target: str, filters: dict) -> tuple[int, str]:
-        token = uuid.uuid4().hex
+    def add_subscription(self, channel: str, target: str, filters: dict) -> tuple[int, str, str]:
+        """Create a subscription. Returns (id, token, verify_token).
+
+        token is the unsubscribe secret the API hands back to the caller.
+        verify_token is the double opt-in secret that only ever travels
+        inside the confirmation email: an email row starts unverified and
+        receives nothing until someone at that address clicks the link.
+        """
+        token, verify_token = uuid.uuid4().hex, uuid.uuid4().hex
         cur = self.conn.execute(
-            "INSERT INTO subscriptions (channel, target, filters, token) VALUES (?,?,?,?)",
-            (channel, target, json.dumps(filters), token),
+            "INSERT INTO subscriptions (channel, target, filters, token, verify_token) "
+            "VALUES (?,?,?,?,?)",
+            (channel, target, json.dumps(filters), token, verify_token),
         )
         self.conn.commit()
-        return cur.lastrowid, token
+        return cur.lastrowid, token, verify_token
 
     def deactivate_by_token(self, token: str) -> bool:
         cur = self.conn.execute(
@@ -354,6 +391,47 @@ class Store:
         )
         self.conn.commit()
         return cur.rowcount > 0
+
+    def verify_by_token(self, verify_token: str) -> bool:
+        """Flip the double opt-in flag. True when the token named a row.
+
+        Idempotent: a second click on the same link still matches, so the
+        confirmation page never looks broken to someone who double-tapped.
+        """
+        cur = self.conn.execute(
+            "UPDATE subscriptions SET verified = 1 WHERE verify_token = ?",
+            (verify_token,),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def prune_unverified(self, days: int = 7) -> int:
+        """Delete email subscriptions that never confirmed. An address whose
+        owner never opted in is not ours to keep, and the row is otherwise
+        immortal because nothing else ever touches it."""
+        cur = self.conn.execute(
+            "DELETE FROM subscriptions WHERE channel = 'email' AND verified = 0 "
+            "AND created_at < datetime('now', ?)",
+            (f"-{int(days)} days",),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def notify_sends_today(self, sub_id: int) -> int:
+        row = self.conn.execute(
+            "SELECT sends FROM notify_sends WHERE day = ? AND subscription_id = ?",
+            (utc_day(), sub_id),
+        ).fetchone()
+        return row["sends"] if row else 0
+
+    def count_notify_send(self, sub_id: int) -> int:
+        self.conn.execute(
+            "INSERT INTO notify_sends (day, subscription_id, sends) VALUES (?,?,1) "
+            "ON CONFLICT(day, subscription_id) DO UPDATE SET sends = sends + 1",
+            (utc_day(), sub_id),
+        )
+        self.conn.commit()
+        return self.notify_sends_today(sub_id)
 
     def active_subscriptions(self) -> list[dict]:
         rows = self.conn.execute(
@@ -363,6 +441,9 @@ class Store:
         for r in rows:
             d = dict(r)
             d["filters"] = json.loads(d["filters"])
+            # SQLite has no boolean type; match the Postgres store so the
+            # fan-out's opt-in check reads the same on both backends.
+            d["verified"] = bool(d["verified"])
             out.append(d)
         return out
 
