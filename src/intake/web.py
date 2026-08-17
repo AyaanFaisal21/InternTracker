@@ -929,7 +929,7 @@ def visitor_hash(salt: str, ip: str, ua: str) -> str:
 # the TTL the cached rows are served without touching the database at all, and
 # after it a small version query decides whether a re-read is needed, so data
 # that has not changed is never sent twice.
-SNAPSHOT_TTL_S = 120.0  # the poller cycle: rows cannot change faster
+SNAPSHOT_TTL_S = 15.0  # cheap to re-validate: only a changed token re-reads
 # (built_at, cache_key, version, rows). cache_key pins the cache to the store
 # it was read from, so a process serving a different database never sees
 # another one's rows.
@@ -955,21 +955,23 @@ def postings_snapshot(store) -> list:
         return rows
 
 
-_postings_cache: tuple[list, bytes] | None = None
+_postings_cache: tuple[list, bytes, str] | None = None
 _postings_lock = threading.Lock()
 
 
-def postings_body(db_path: Path) -> bytes:
-    """Serialized /api/postings payload.
+def postings_payload(db_path: Path) -> tuple[bytes, str]:
+    """Serialized /api/postings payload and its ETag.
 
     Keyed on the snapshot's identity, so the JSON is rebuilt exactly when the
-    underlying rows are replaced and reused on every request in between.
+    underlying rows are replaced and reused on every request in between. The
+    ETag lets a polling client revalidate for a few hundred bytes instead of
+    re-downloading 1.5 MB it already has.
     """
     global _postings_cache
     rows_in = postings_snapshot(open_store(db_path))
     with _postings_lock:
         if _postings_cache and _postings_cache[0] is rows_in:
-            return _postings_cache[1]
+            return _postings_cache[1], _postings_cache[2]
         rows = []
         for p in rows_in:
             d = p.model_dump(mode="json")
@@ -978,8 +980,9 @@ def postings_body(db_path: Path) -> bytes:
             d["role"] = classify_role(p.title)
             rows.append(d)
         body = json.dumps(rows).encode()
-        _postings_cache = (rows_in, body)
-        return body
+        etag = '"' + hashlib.sha1(body).hexdigest()[:16] + '"'
+        _postings_cache = (rows_in, body, etag)
+        return body, etag
 
 
 def make_handler(db_path: Path):
@@ -996,7 +999,12 @@ def make_handler(db_path: Path):
             elif path == "/listings":
                 self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             elif path == "/api/postings":
-                self._send(200, postings_body(db_path), "application/json")
+                body, etag = postings_payload(db_path)
+                if self.headers.get("If-None-Match") == etag:
+                    self._send_304(etag)  # ~200 bytes instead of 1.5 MB
+                    return
+                self._send(200, body, "application/json",
+                           {"ETag": etag, "Cache-Control": "no-cache"})
             elif path == "/api/suggestions":
                 store = open_store(db_path)
                 self._send(200, json.dumps(store.recent_suggestions()).encode(), "application/json")
@@ -1250,12 +1258,20 @@ def make_handler(db_path: Path):
             if length > 0:
                 self.rfile.read(min(length, 8192))
 
-        def _send(self, code: int, body: bytes, ctype: str):
+        def _send(self, code: int, body: bytes, ctype: str, headers: dict | None = None):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(body)
+
+        def _send_304(self, etag: str):
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
 
         def log_message(self, *args):  # quiet
             pass

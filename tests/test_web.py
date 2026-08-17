@@ -750,3 +750,38 @@ def test_snapshot_skips_reread_when_version_unchanged(monkeypatch):
     changed = web.postings_snapshot(store)
     assert store.reads == 2          # a real change does re-read
     assert changed != first
+
+
+def test_postings_endpoint_revalidates_with_etag(tmp_path):
+    """A polling client that already holds the current board gets a 304.
+
+    This is what lets the browser refresh often without re-downloading the
+    whole list every time.
+    """
+    import json as _json
+    from intake import web
+    from intake.schema import RawDetection, Source
+    from intake.store import Store
+
+    db = tmp_path / "t.db"
+    store = Store(db)
+    store.upsert_detection(RawDetection(
+        source=Source.GREENHOUSE, company="Stripe", title="Software Engineer Intern",
+        url="https://x.co/1", locations=["NYC"],
+    ))
+    web._snapshot = None
+    web._postings_cache = None
+
+    body, etag = web.postings_payload(db)
+    assert etag.startswith('"') and len(_json.loads(body)) == 1
+
+    body2, etag2 = web.postings_payload(db)
+    assert etag2 == etag and body2 == body      # unchanged data, same validator
+
+    store.upsert_detection(RawDetection(
+        source=Source.LEVER, company="Ramp", title="Software Engineer Intern",
+        url="https://y.co/2", locations=["NYC"],
+    ))
+    web._snapshot = None                         # next poll re-reads
+    _, etag3 = web.postings_payload(db)
+    assert etag3 != etag                         # changed data, new validator
