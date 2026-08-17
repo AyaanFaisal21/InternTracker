@@ -1,45 +1,76 @@
-// Company typeahead for the subscribe panel: a combobox over the board's
-// live company list whose picks become removable chips. Every suggestion and
-// every chip carries its posting count, so a reader sees that a name matches
-// real postings before submitting. A name the board does not track can still
-// be added, but it is marked instead of silently accepted, which is the
-// failure this control exists to prevent.
+// Company typeahead: a combobox over a candidate list whose picks become
+// removable chips. Two callers share it. The subscribe panel feeds it
+// /api/companies and lets an untracked name through, marked rather than
+// silently accepted, which is the failure that control exists to prevent.
+// The board's sidebar feeds it the companies of the postings already
+// loaded and refuses anything else, since filtering to a company with no
+// postings only empties the board. Everything else, the filtering, the key
+// handling, the chips and the combobox roles, is the same control.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { Company } from "../api";
+import "../styles/picker.css";
 
-/** Whether the list behind the typeahead loaded. */
+/** Whether the list behind the typeahead is available yet. */
 export type ListState = "loading" | "ready" | "failed";
+
+/** One candidate name and the postings standing behind it. */
+export interface CompanyOption {
+  name: string;
+  count: number;
+}
 
 // A long popup turns into a scroll trap; the query narrows fast enough.
 const MAX_ROWS = 8;
 
+/**
+ * Comparison key for a company name. Case, padding and repeated spaces are
+ * not differences, so "  nvidia" and "NVIDIA" are one company here and in
+ * every caller that filters on the picked names.
+ */
+export function companyKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 interface Row {
   name: string;
-  /** Live postings, or null when the name is not on the board's list. */
+  /** Postings behind the name, or null when it is not on the list. */
   count: number | null;
 }
 
 /** Reader-facing count for a row or chip. Never claims more than we know. */
-function countText(count: number | null, listState: ListState): string {
-  if (count !== null) return `${count} open`;
+function countText(count: number | null, listState: ListState, unit: string): string {
+  if (count !== null) return unit ? `${count} ${unit}` : String(count);
   return listState === "ready" ? "not tracked yet" : "unchecked";
 }
 
 export default function CompanyPicker({
-  companies,
+  label,
+  help,
+  placeholder,
+  unit = "",
+  options,
   listState,
   selected,
   max,
-  disabled,
+  allowUnknown,
+  disabled = false,
   onChange,
 }: {
-  companies: Company[];
+  label: string;
+  help: string;
+  /** Empty-state prompt. The loading and full states word themselves. */
+  placeholder: string;
+  /** Noun after a count; empty renders the bare number. */
+  unit?: string;
+  options: CompanyOption[];
   listState: ListState;
   selected: string[];
+  /** Selection cap. Infinity means uncapped, which also drops the tally. */
   max: number;
-  disabled: boolean;
+  /** Whether a name absent from `options` may be picked. */
+  allowUnknown: boolean;
+  disabled?: boolean;
   onChange: (next: string[]) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -53,41 +84,41 @@ export default function CompanyPicker({
   const helpId = `${uid}-help`;
   const optionId = (i: number) => `${uid}-opt-${i}`;
 
-  // Keyed by lowercased name: it resolves both the count and the board's
-  // own spelling, so a name typed in another case is stored the way the
-  // backend knows it instead of arriving as an unmatchable string.
-  const tracked = useMemo(() => {
-    const m = new Map<string, Company>();
-    companies.forEach((c) => m.set(c.name.toLowerCase(), c));
+  // Keyed by comparison key: it resolves both the count and the list's own
+  // spelling, so a name typed in another case is stored the way the source
+  // knows it instead of arriving as an unmatchable string.
+  const known = useMemo(() => {
+    const m = new Map<string, CompanyOption>();
+    options.forEach((c) => m.set(companyKey(c.name), c));
     return m;
-  }, [companies]);
+  }, [options]);
 
   const full = selected.length >= max;
   const locked = disabled || listState === "loading";
 
   const rows = useMemo<Row[]>(() => {
     if (full) return [];
-    const q = query.trim().toLowerCase();
-    const taken = new Set(selected.map((s) => s.toLowerCase()));
-    const hits = companies.filter(
-      (c) => !taken.has(c.name.toLowerCase()) && c.name.toLowerCase().includes(q),
+    const q = companyKey(query);
+    const taken = new Set(selected.map(companyKey));
+    const hits = options.filter(
+      (c) => !taken.has(companyKey(c.name)) && companyKey(c.name).includes(q),
     );
     if (q)
       hits.sort((a, b) => {
         const lead =
-          Number(b.name.toLowerCase().startsWith(q)) -
-          Number(a.name.toLowerCase().startsWith(q));
-        return lead || b.postings - a.postings;
+          Number(companyKey(b.name).startsWith(q)) -
+          Number(companyKey(a.name).startsWith(q));
+        return lead || b.count - a.count;
       });
     const out: Row[] = hits
       .slice(0, MAX_ROWS)
-      .map((c) => ({ name: c.name, count: c.postings }));
+      .map((c) => ({ name: c.name, count: c.count }));
     // An unmatched name is offered as its own row, so adding it is a
     // deliberate act rather than a typo slipping through unnoticed.
-    if (q && !tracked.has(q) && !taken.has(q))
+    if (allowUnknown && q && !known.has(q) && !taken.has(q))
       out.push({ name: query.trim(), count: null });
     return out;
-  }, [companies, query, selected, tracked, full]);
+  }, [options, query, selected, known, full, allowUnknown]);
 
   const activeValid = open && active >= 0 && active < rows.length;
 
@@ -110,8 +141,10 @@ export default function CompanyPicker({
     setQuery("");
     inputRef.current?.focus();
     if (!clean || full) return;
-    if (selected.some((s) => s.toLowerCase() === clean.toLowerCase())) return;
-    onChange([...selected, tracked.get(clean.toLowerCase())?.name ?? clean]);
+    const hit = known.get(companyKey(clean));
+    if (!hit && !allowUnknown) return;
+    if (selected.some((s) => companyKey(s) === companyKey(clean))) return;
+    onChange([...selected, hit?.name ?? clean]);
   }
 
   function remove(name: string) {
@@ -161,24 +194,26 @@ export default function CompanyPicker({
     if (e.key === "Tab" && open) close();
   }
 
-  const placeholder =
+  const prompt =
     listState === "loading"
       ? "loading companies"
       : full
         ? `${max} is the limit`
         : selected.length
           ? "add another"
-          : "start typing a company name";
+          : placeholder;
 
   return (
     <div className="cp">
       <div className="cp-head">
         <label className="cp-lab" htmlFor={inputId}>
-          Companies to watch
+          {label}
         </label>
-        <span className="cp-tally">
-          {selected.length} of {max}
-        </span>
+        {Number.isFinite(max) && (
+          <span className="cp-tally">
+            {selected.length} of {max}
+          </span>
+        )}
       </div>
       <div className="cp-anchor">
         <div
@@ -196,18 +231,20 @@ export default function CompanyPicker({
           {selected.length > 0 && (
             <ul className="cp-chips">
               {selected.map((name) => {
-                const count = tracked.get(name.toLowerCase())?.postings ?? null;
-                const unknown = count === null && listState === "ready";
+                const count = known.get(companyKey(name))?.count ?? null;
+                const unlisted = count === null && listState === "ready";
                 return (
                   <li
                     key={name}
-                    className={unknown ? "cp-chip cp-chip-new" : "cp-chip"}
+                    className={unlisted ? "cp-chip cp-chip-new" : "cp-chip"}
                   >
-                    <span className="cp-chip-name">{name}</span>
+                    <span className="cp-chip-name" title={name}>
+                      {name}
+                    </span>
                     <span className="cp-dot" aria-hidden="true">
                       ·
                     </span>
-                    <span className="cp-n">{countText(count, listState)}</span>
+                    <span className="cp-n">{countText(count, listState, unit)}</span>
                     <button
                       type="button"
                       className="cp-x"
@@ -230,7 +267,7 @@ export default function CompanyPicker({
             autoComplete="off"
             spellCheck={false}
             disabled={locked}
-            placeholder={placeholder}
+            placeholder={prompt}
             value={query}
             role="combobox"
             aria-expanded={open}
@@ -272,18 +309,19 @@ export default function CompanyPicker({
               onMouseEnter={() => setActive(i)}
               onClick={() => add(r.name)}
             >
-              <span className="cp-opt-name">{r.name}</span>
+              <span className="cp-opt-name" title={r.name}>
+                {r.name}
+              </span>
               <span className="cp-dot" aria-hidden="true">
                 ·
               </span>
-              <span className="cp-n">{countText(r.count, listState)}</span>
+              <span className="cp-n">{countText(r.count, listState, unit)}</span>
             </li>
           ))}
         </ul>
       </div>
       <p className="cp-help" id={helpId}>
-        Type to search the board. Arrow keys move, Enter adds, Backspace
-        removes the last one.
+        {help}
       </p>
     </div>
   );

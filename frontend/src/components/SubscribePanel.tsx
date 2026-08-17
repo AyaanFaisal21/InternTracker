@@ -3,7 +3,7 @@
 // submit. Nothing is subscribed until the reader opens the confirmation link
 // the server mails, so the success state leads with that.
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { fetchCompanies, subscribe } from "../api";
 import type { Company, SubscribeRefusal } from "../api";
@@ -128,6 +128,13 @@ export default function SubscribePanel() {
     setError("");
   }
 
+  // The picker takes a neutral {name, count} list; the API answers in its
+  // own shape, and only this caller should know that shape.
+  const options = useMemo(
+    () => companies.map((c) => ({ name: c.name, count: c.postings })),
+    [companies],
+  );
+
   const untracked =
     listState === "ready"
       ? selected.filter(
@@ -189,10 +196,15 @@ export default function SubscribePanel() {
             </p>
 
             <CompanyPicker
-              companies={companies}
+              label="Companies to watch"
+              placeholder="start typing a company name"
+              help="Type to search the board. Arrow keys move, Enter adds, Backspace removes the last one."
+              unit="open"
+              options={options}
               listState={listState}
               selected={selected}
               max={MAX_COMPANIES}
+              allowUnknown
               disabled={sending}
               onChange={setSelected}
             />
