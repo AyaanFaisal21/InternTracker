@@ -19,6 +19,7 @@ import {
   seasonOf,
 } from "../postings";
 import Masthead from "../components/Masthead";
+import SubscribePanel from "../components/SubscribePanel";
 import "../styles/listings.css";
 
 import type { KeyboardEvent, ReactNode } from "react";
@@ -472,6 +473,7 @@ export default function Listings() {
               ))}
             </div>
           </div>
+          <SubscribePanel />
           <div className="searchrow">
             <input
               placeholder="Search title, company, qualifications"

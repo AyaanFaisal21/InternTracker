@@ -84,6 +84,37 @@ export interface SuggestInput {
   keywords?: string;
 }
 
+/** One row of GET /api/companies: a company that has live postings. */
+export interface Company {
+  name: string;
+  postings: number;
+}
+
+/** Body of POST /api/subscribe. Only email exists as a channel today. */
+export interface SubscribeInput {
+  channel: "email";
+  target: string;
+  filters: { companies: string[] };
+}
+
+/**
+ * Success body of POST /api/subscribe. `matches` maps every submitted
+ * company to its live posting count, so 0 means "not tracked yet". `token`
+ * is the confirmation secret from the emailed link: never render it.
+ */
+export interface Subscription {
+  id: number;
+  token: string;
+  matches: Record<string, number>;
+}
+
+/** Why the server refused a subscribe request. */
+export type SubscribeRefusal = "invalid" | "rate_limited" | "server";
+
+export type SubscribeResult =
+  | { ok: true; subscription: Subscription }
+  | { ok: false; reason: SubscribeRefusal };
+
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export async function fetchPostings(signal?: AbortSignal): Promise<Posting[]> {
@@ -114,6 +145,40 @@ export async function submitSuggestion(
   });
   if (!r.ok) return null;
   return (await r.json()) as { id: number };
+}
+
+export async function fetchCompanies(signal?: AbortSignal): Promise<Company[]> {
+  const r = await fetch("/api/companies", { signal });
+  if (!r.ok) throw new Error(`GET /api/companies: ${r.status}`);
+  return (await r.json()) as Company[];
+}
+
+/**
+ * Request an email subscription. The server mails a confirmation link and
+ * the subscription stays inactive until it is opened. A refusal comes back
+ * as a typed result so callers can tell validation from rate limiting;
+ * only network failures throw.
+ */
+export async function subscribe(
+  input: SubscribeInput,
+  signal?: AbortSignal,
+): Promise<SubscribeResult> {
+  const r = await fetch("/api/subscribe", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+    signal,
+  });
+  if (!r.ok) {
+    const reason: SubscribeRefusal =
+      r.status === 400
+        ? "invalid"
+        : r.status === 429
+          ? "rate_limited"
+          : "server";
+    return { ok: false, reason };
+  }
+  return { ok: true, subscription: (await r.json()) as Subscription };
 }
 
 /** Fire-and-forget page-open beacon. Never throws. */

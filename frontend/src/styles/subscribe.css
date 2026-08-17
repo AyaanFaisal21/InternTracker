@@ -1,0 +1,105 @@
+/* Subscribe panel and company picker, scoped under .sub so the board's own
+   class names cannot collide. The board is hex-coded dark and never follows
+   prefers-color-scheme, so these repeat the masthead's dark-scheme values
+   rather than inheriting the light.css tokens, which flip under a light
+   scheme and would double-invert here. Panel surfaces and rules are the
+   board's own (#1e1e1e on #363636), and amber is the board's pending color,
+   reused for anything we cannot vouch for yet. */
+
+.sub {
+  --sub-paper: #1e1e1e;
+  --sub-ground: #161616;
+  --sub-ink: #e8e0d1;
+  --sub-ink-soft: #b3a08e;
+  --sub-scarlet: #f85149;
+  --sub-rule: #363636;
+  --sub-warn: #e3b341;
+
+  border: 1px solid var(--sub-rule);
+  border-left: 2px solid var(--sub-scarlet);
+  border-radius: 8px;
+  background: var(--sub-paper);
+  margin-bottom: 12px;
+}
+.sub :focus-visible { outline: 2px solid var(--sub-scarlet); outline-offset: 2px; }
+
+.sub-toggle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; width: 100%;
+              padding: 11px 16px; background: none; border: 0; color: var(--sub-ink);
+              font: inherit; text-align: left; cursor: pointer; }
+.sub-kicker { font-size: 11px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase;
+              color: var(--sub-scarlet); white-space: nowrap; }
+.sub-kicker::before { content: ""; display: inline-block; width: 22px; height: 2px; margin-right: 9px;
+                      background: var(--sub-scarlet); vertical-align: middle; }
+.sub-line { font: 15px Georgia, "Times New Roman", serif; }
+.sub-cue { margin-left: auto; font-size: 12.5px; color: var(--sub-ink-soft);
+           border-bottom: 1px solid transparent; }
+.sub-toggle:hover .sub-cue { color: var(--sub-ink); border-bottom-color: var(--sub-scarlet); }
+
+.sub-body { padding: 12px 16px 14px; border-top: 1px solid #2a2a2a; }
+.sub-note { margin: 0; color: var(--sub-ink-soft); font-size: 12.5px; }
+.sub-intro { margin-bottom: 12px; }
+.sub-warn { margin: 6px 0 0; color: var(--sub-warn); font-size: 12px; }
+.sub-field { margin-top: 12px; }
+.sub-send { display: flex; flex-wrap: wrap; gap: 8px; }
+.sub-email { flex: 1 1 200px; min-width: 0; padding: 7px 10px; font: inherit; font-size: 13px;
+             color: #e6edf3; background: var(--sub-ground); border: 1px solid var(--sub-rule);
+             border-radius: 6px; }
+.sub-email[aria-invalid="true"] { border-color: var(--sub-scarlet); }
+.sub-btn { padding: 7px 16px; font-size: 13px; font-weight: 600; color: #fff; background: #238636;
+           border: 1px solid #2ea04366; border-radius: 6px; cursor: pointer; }
+.sub-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.sub-retry, .sub-again { padding: 0; font: inherit; color: var(--sub-ink); background: none; border: 0;
+                         border-bottom: 1px solid var(--sub-scarlet); cursor: pointer; }
+.sub-again { margin-top: 12px; font-size: 13px; }
+
+/* Live regions stay mounted so a message inserted later is announced. They
+   collapse to nothing while empty instead of being display:none. */
+.sub-live { margin: 10px 0 0; font-size: 12.5px; }
+.sub-live:empty { margin: 0; }
+.sub-ok { color: #7ee787; }
+.sub-err { color: #ff9d95; }
+
+.sub-done h4 { margin: 0 0 6px; font: 16px Georgia, "Times New Roman", serif; color: var(--sub-ink); }
+.sub-confirm { margin: 10px 0 0; padding: 0 0 0 12px; list-style: none;
+               border-left: 2px solid #3fb95066; font-size: 12.5px; color: #e6edf3; }
+.sub-confirm li { padding: 2px 0; }
+.sub-confirm li.new { color: var(--sub-warn); }
+.sub-confirm li.new .cp-n { color: var(--sub-warn); }
+
+.cp-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+.cp-lab { display: block; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em;
+          text-transform: uppercase; color: var(--sub-ink-soft); margin-bottom: 5px; }
+.cp-head .cp-lab { margin-bottom: 0; }
+.cp-tally { margin-left: auto; font-size: 11.5px; color: var(--sub-ink-soft); }
+.cp-anchor { position: relative; }
+.cp-box { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px 8px;
+          background: var(--sub-ground); border: 1px solid var(--sub-rule); border-radius: 6px;
+          cursor: text; }
+.cp-box:focus-within { border-color: var(--sub-scarlet); }
+.cp-input { flex: 1 1 140px; min-width: 100px; padding: 3px 2px; font: inherit; font-size: 13px;
+            color: #e6edf3; background: none; border: 0; outline: none; }
+.cp-input::placeholder { color: #6e7681; }
+
+.cp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none;
+            max-width: 100%; }
+.cp-chip { display: inline-flex; align-items: center; max-width: 100%; padding: 2px 3px 2px 9px;
+           font-size: 12.5px; color: #e6edf3; background: #ffffff0a;
+           border: 1px solid var(--sub-rule); border-radius: 6px; }
+.cp-chip-new { color: var(--sub-warn); background: #d299221a; border-color: #d2992266; }
+.cp-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-x { padding: 1px 5px; font-size: 14px; line-height: 1; color: inherit; background: none; border: 0;
+        border-radius: 4px; opacity: 0.6; cursor: pointer; }
+.cp-x:hover { opacity: 1; background: #ffffff14; }
+.cp-x:disabled { cursor: not-allowed; }
+.cp-dot { margin: 0 5px; color: #6e7681; }
+.cp-n { color: var(--sub-ink-soft); font-size: 11.5px; white-space: nowrap; }
+
+.cp-pop { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 250px;
+          overflow-y: auto; margin: 0; padding: 4px 0; list-style: none; background: var(--sub-paper);
+          border: 1px solid var(--sub-rule); border-radius: 6px; box-shadow: 0 10px 24px #0009; }
+.cp-opt { display: flex; align-items: baseline; padding: 5px 12px; font-size: 13px; color: #e6edf3;
+          border-left: 2px solid transparent; cursor: pointer; }
+.cp-opt.on { background: #ffffff0d; border-left-color: var(--sub-scarlet); }
+.cp-opt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-opt-new .cp-n { color: var(--sub-warn); }
+.cp-help { margin: 6px 0 0; font-size: 11.5px; color: #6e7681; }
