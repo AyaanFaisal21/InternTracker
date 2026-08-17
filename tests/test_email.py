@@ -1,5 +1,5 @@
 """Email delivery over SES: the exact request shape, the compliance
-elements every message must carry, and the failure paths.
+elements every message must carry, the subject lines, and the failure paths.
 
 FakeSES stands in for the boto3 SESv2 client and records every call, so
 these tests assert the contract AWS would see without a network, a
@@ -18,14 +18,24 @@ from intake.notify import LogSender
 from intake.schema import Posting, RawDetection, Source
 from intake.senders import (
     EmailSender,
+    alert_subject,
     build_sender,
     clean_email,
     email_sender,
+    send_pending_confirmations,
     valid_email,
 )
 from intake.store import Store
+from intake.web import CONFIRM_LIMIT
 
 ADDRESS = "Shortlist, 123 College Ave, New Brunswick, NJ 08901"
+
+# The footer, verbatim. Written out here rather than imported from the
+# module under test: the copy is the compliance artifact, so a test that
+# reads it from the same constant would agree with any edit at all.
+REASON = ("This email was sent to you because you signed up for Software "
+          "Engineering Internship Alerts matching your preferred companies.")
+PREFERENCES = "Adjust the companies you follow or stop every alert at any time."
 
 
 def cfg(**over) -> NotifySettings:
@@ -90,6 +100,17 @@ def parts(msg) -> dict[str, str]:
     }
 
 
+def footer(text: str) -> list[str]:
+    """The last four non-empty lines of a text part: the footer, in order."""
+    return [line for line in text.splitlines() if line.strip()][-4:]
+
+
+def order_of(html: str, marks: tuple[str, ...]) -> list[int]:
+    """Where each mark sits in the HTML part. Every mark must be present:
+    index raises otherwise, which is the assertion."""
+    return [html.index(m) for m in marks]
+
+
 # -- address validation ---------------------------------------------------
 
 @pytest.mark.parametrize("value,ok", [
@@ -133,7 +154,8 @@ def test_alert_request_carries_every_required_element():
     assert set(params["Content"]) == {"Raw"}
 
     msg = sent_message(client)
-    assert msg["Subject"] == "2 new internship postings"
+    assert msg["Subject"] == (
+        "[Alert] 2 new SWE internship postings at NVIDIA and Stripe")
     assert msg["From"] == "Shortlist <alerts@notify.short-list.app>"
     assert msg["To"] == "student@scarletmail.rutgers.edu"
     assert msg["Date"]                      # RFC 5322 requires one
@@ -182,12 +204,6 @@ def test_a_long_posting_url_stays_inside_the_line_limit():
     assert long_url in parts(sent_message(client))["text/plain"]
 
 
-def test_a_single_posting_gets_a_specific_subject():
-    client = FakeSES()
-    EmailSender(cfg(), client)(sub(), [posting()])
-    assert sent_message(client)["Subject"] == "NVIDIA: Software Engineer Intern"
-
-
 def test_no_configuration_set_means_the_key_is_absent():
     client = FakeSES()
     EmailSender(cfg(), client)(sub(), [posting()])
@@ -215,6 +231,98 @@ def test_base_url_override_moves_every_link():
     sender = EmailSender(cfg(base_url="https://staging.example"), client)
     sender.send_confirmation(sub())
     assert "https://staging.example/api/verify?token=" in parts(sent_message(client))["text/plain"]
+
+
+# -- the footer -----------------------------------------------------------
+
+UNSUB = f"https://short-list.app/api/unsubscribe?token={TOKEN}"
+
+
+@pytest.mark.parametrize("kind", ["alert", "confirmation"])
+def test_every_message_carries_the_same_four_footer_elements(kind):
+    """Reason for receipt, postal address, what the reader can change, and
+    the unsubscribe link. Same four in the same order in both MIME parts of
+    both message types, because a reader on a text-only client is owed the
+    same notice as one reading the HTML."""
+    client = FakeSES()
+    sender = EmailSender(cfg(), client)
+    if kind == "alert":
+        sender(sub(), [posting()])
+    else:
+        sender.send_confirmation(sub())
+    body = parts(sent_message(client))
+
+    assert footer(body["text/plain"]) == [
+        REASON,
+        f"Our Mailing Address: {ADDRESS}",
+        PREFERENCES,
+        f"Unsubscribe instantly: {UNSUB}",
+    ]
+    # The HTML part carries the same four, in the same order, with the link
+    # labeled rather than pasted raw.
+    marks = (REASON, f"Our Mailing Address: {ADDRESS}", PREFERENCES,
+             f'<a href="{UNSUB}">Unsubscribe instantly</a>')
+    positions = order_of(body["text/html"], marks)
+    assert positions == sorted(positions)
+
+
+def test_the_footer_carries_the_configured_address_not_a_placeholder():
+    client = FakeSES()
+    other = "Shortlist, 1 Elm St, Newark, NJ 07102"
+    EmailSender(cfg(postal_address=other), client)(sub(), [posting()])
+    body = parts(sent_message(client))
+    assert footer(body["text/plain"])[1] == f"Our Mailing Address: {other}"
+    assert other in body["text/html"] and ADDRESS not in body["text/html"]
+
+
+# -- subjects -------------------------------------------------------------
+
+# (postings as (company, title), the subject that is true of them)
+SUBJECT_CASES = [
+    ([("Apple", "SWE Intern")],
+     "[Alert] New SWE internship posting at Apple"),
+    ([("Apple", "SWE Intern"), ("Apple", "iOS Intern"), ("Apple", "ML Intern")],
+     "[Alert] 3 new SWE internship postings at Apple"),
+    ([("Apple", "SWE Intern"), ("Stripe", "ML Intern")],
+     "[Alert] 2 new SWE internship postings at Apple and Stripe"),
+    # Three companies: two named, the rest counted. Naming every company
+    # would run a subject past what any client shows.
+    ([("Apple", "SWE Intern"), ("Stripe", "ML Intern"), ("NVIDIA", "GPU Intern")],
+     "[Alert] 3 new SWE internship postings at Apple, Stripe and 1 more company"),
+    ([("Apple", "SWE Intern"), ("Apple", "iOS Intern"), ("Stripe", "ML Intern"),
+      ("NVIDIA", "GPU Intern"), ("Datadog", "Backend Intern")],
+     "[Alert] 5 new SWE internship postings at Apple, Stripe and 2 more companies"),
+]
+
+
+@pytest.mark.parametrize("rows,subject", SUBJECT_CASES)
+def test_the_subject_states_exactly_what_the_message_holds(rows, subject):
+    postings = [posting(company=c, title=t, canonical=f"https://x.co/job/{i}")
+                for i, (c, t) in enumerate(rows)]
+    client = FakeSES()
+    EmailSender(cfg(), client)(sub(), postings)
+    msg = sent_message(client)
+
+    assert msg["Subject"] == subject
+    assert alert_subject(postings) == subject
+    # The claim in the subject is checkable against the payload: every
+    # posting counted is a posting enclosed, and every company named sent one.
+    text = parts(msg)["text/plain"]
+    for p in postings:
+        assert p.canonical_url in text and p.title in text
+    for named in ("Apple", "Stripe"):
+        assert (named in subject) is any(p.company == named for p in postings)
+
+
+def test_the_count_in_the_subject_is_postings_not_companies():
+    # Two companies, four postings: the number a reader sees is the number
+    # of things to look at, never the number of employers.
+    postings = [posting(company="Apple", title=f"Intern {i}",
+                        canonical=f"https://x.co/a{i}") for i in range(3)]
+    postings.append(posting(company="Stripe", title="ML Intern",
+                            canonical="https://x.co/s"))
+    assert alert_subject(postings) == (
+        "[Alert] 4 new SWE internship postings at Apple and Stripe")
 
 
 # -- refusals and failures ------------------------------------------------
@@ -287,6 +395,120 @@ def test_a_push_subscription_is_not_mailed():
     client = FakeSES()
     EmailSender(cfg(), client)({**sub(), "channel": "push"}, [posting()])
     assert client.calls == []
+
+
+# -- pending confirmations ------------------------------------------------
+
+def waiting_rows(store, n: int, prefix: str) -> list[int]:
+    """n email signups that were never mailed a confirmation, which is what
+    every signup looks like while the email channel is dark."""
+    return [store.add_subscription("email", f"{prefix}{i}@x.edu", {})[0]
+            for i in range(n)]
+
+
+def stamps(store) -> list[str | None]:
+    return [r["confirmation_sent_at"] for r in store.conn.execute(
+        "SELECT confirmation_sent_at FROM subscriptions ORDER BY id")]
+
+
+def test_pending_confirmations_are_mailed_once_sending_works(tmp_path):
+    store = Store(tmp_path / "pend.db")
+    ids = waiting_rows(store, 2, "wait")
+    client = FakeSES()
+    sender = EmailSender(cfg(), client, store=store)
+    CONFIRM_LIMIT.reset()
+
+    assert [s["id"] for s in store.pending_confirmations()] == ids
+    assert send_pending_confirmations(store, sender) == 2
+    assert len(client.calls) == 2
+    # Each message is that row's own confirmation, carrying its verify link.
+    for call in client.calls:
+        raw = call["Content"]["Raw"]["Data"].decode()
+        assert "/api/verify?token=" in raw
+
+    # Stamped on acceptance, so the row leaves the queue and the next cycle
+    # mails nobody twice.
+    assert None not in stamps(store)
+    assert store.pending_confirmations() == []
+    assert send_pending_confirmations(store, sender) == 0
+    assert len(client.calls) == 2
+
+
+def test_a_refused_confirmation_stays_pending_for_the_next_cycle(tmp_path):
+    store = Store(tmp_path / "refuse.db")
+    waiting_rows(store, 1, "again")
+    CONFIRM_LIMIT.reset()
+    failing = EmailSender(cfg(), FakeSES(AwsError("ThrottlingException", "slow")),
+                          store=store)
+    assert send_pending_confirmations(store, failing) == 0
+    # No stamp means no lost signup: the row is still owed a confirmation.
+    assert stamps(store) == [None]
+
+    client = FakeSES()
+    assert send_pending_confirmations(store, EmailSender(cfg(), client, store=store)) == 1
+    assert len(client.calls) == 1 and stamps(store) != [None]
+
+
+@pytest.mark.parametrize("sender_for", [
+    lambda client, store: LogSender(),                       # no SES at all
+    lambda client, store: EmailSender(cfg(postal_address=""), client, store=store),
+])
+def test_the_backfill_is_a_no_op_while_sending_is_unconfigured(sender_for, tmp_path):
+    store = Store(tmp_path / "dark.db")
+    waiting_rows(store, 2, "dark")
+    client = FakeSES()
+    CONFIRM_LIMIT.reset()
+
+    # Nothing sent and nothing attempted: an unsendable message must not
+    # turn into a refusal logged once per row per cycle either.
+    assert send_pending_confirmations(store, sender_for(client, store)) == 0
+    assert client.calls == []
+    assert stamps(store) == [None, None]
+    assert len(store.pending_confirmations()) == 2
+
+
+def test_the_backfill_drains_a_backlog_in_bounded_batches(tmp_path):
+    store = Store(tmp_path / "backlog.db")
+    waiting_rows(store, 8, "many")
+    client = FakeSES()
+    sender = EmailSender(cfg(), client, store=store)
+    CONFIRM_LIMIT.reset()
+
+    # A launch-day backlog arrives as several small cycles, not one burst.
+    assert send_pending_confirmations(store, sender) == 5
+    assert len(store.pending_confirmations()) == 3
+    assert send_pending_confirmations(store, sender) == 3
+    assert store.pending_confirmations() == []
+    assert len(client.calls) == 8
+    assert None not in stamps(store)
+
+
+def test_one_address_with_several_pending_rows_is_not_mailed_at_once(tmp_path):
+    store = Store(tmp_path / "same.db")
+    for _ in range(3):
+        store.add_subscription("email", "eager@x.edu", {})
+    client = FakeSES()
+    CONFIRM_LIMIT.reset()
+
+    # The subscribe endpoint's per-recipient window, reused: three rows for
+    # one address is still one inbox, and two confirmations is already the
+    # most anyone needs.
+    assert send_pending_confirmations(store, EmailSender(cfg(), client, store=store)) == 2
+    assert len(store.pending_confirmations()) == 1
+    CONFIRM_LIMIT.reset()
+
+
+def test_confirmed_and_push_rows_are_never_in_the_backfill(tmp_path):
+    store = Store(tmp_path / "skip.db")
+    _, _, verify = store.add_subscription("email", "ok@x.edu", {})
+    store.verify_by_token(verify)
+    store.add_subscription("push", '{"endpoint": "https://p.example/x"}', {})
+    _, token, _ = store.add_subscription("email", "off@x.edu", {})
+    store.deactivate_by_token(token)
+
+    # A confirmed address has nothing to confirm, push has no confirmation
+    # step, and an unsubscribed row is not owed mail.
+    assert store.pending_confirmations() == []
 
 
 # -- construction ---------------------------------------------------------

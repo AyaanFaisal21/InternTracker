@@ -36,6 +36,7 @@ apart because the operator's next action differs for each:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from email import policy
@@ -73,6 +74,20 @@ EMAIL_RE = re.compile(
     r"(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
 )
 
+# The footer, fixed copy rather than a per-message argument: a footer a
+# caller can vary is a footer a caller can ship incomplete. Four elements in
+# this order in both MIME parts of every message, alerts and the
+# confirmation alike. The mailing address and the unsubscribe link come from
+# configuration and are interpolated in _build.
+REASON_LINE = (
+    "This email was sent to you because you signed up for Software "
+    "Engineering Internship Alerts matching your preferred companies."
+)
+PREFERENCES_LINE = (
+    "Adjust the companies you follow or stop every alert at any time."
+)
+UNSUBSCRIBE_LABEL = "Unsubscribe instantly"
+
 # Substrings AWS puts in a MessageRejected whose cause is the account's own
 # sandbox status rather than the recipient. Matched on the message because
 # the error code is the same one a genuinely bad recipient produces.
@@ -100,6 +115,42 @@ def valid_email(value: str) -> bool:
     what proves the address exists and that its owner asked for mail."""
     v = clean_email(value)
     return bool(v) and len(v) <= EMAIL_MAX and bool(EMAIL_RE.match(v))
+
+
+def recipient_key(target: str) -> str:
+    """Per-recipient limiter key: a hash, so a limiter's memory holds no
+    addresses. Shared by the subscribe endpoint and the poller's backfill,
+    which have to agree on what "this recipient" means."""
+    return hashlib.sha256(target.lower().encode()).hexdigest()[:16]
+
+
+def alert_subject(postings: list[Posting]) -> str:
+    """A subject that states what the message holds, derived from the
+    postings themselves.
+
+    The number is the number enclosed and the names are the companies they
+    came from, so no subject can be true of a message we did not send. Past
+    two companies the rest are counted rather than listed: a subject has no
+    room for six names, and "and 3 more companies" stays exactly as true as
+    the full list would have been.
+    """
+    n = len(postings)
+    # dict.fromkeys: first-seen order, so the two names shown are the two the
+    # body leads with rather than an arbitrary pair out of a set.
+    companies = list(dict.fromkeys(p.company for p in postings))
+    count = (
+        "New SWE internship posting" if n == 1
+        else f"{n} new SWE internship postings"
+    )
+    if len(companies) <= 2:
+        where = " and ".join(companies)
+    else:
+        rest = len(companies) - 2
+        where = (
+            f"{companies[0]}, {companies[1]} and {rest} more "
+            f"{'company' if rest == 1 else 'companies'}"
+        )
+    return f"[Alert] {count} at {where}"
 
 
 def _error_code(exc: Exception) -> str:
@@ -155,10 +206,7 @@ class EmailSender:
 
     def alert_message(self, sub: dict, postings: list[Posting]) -> EmailMessage:
         n = len(postings)
-        subject = (
-            f"{postings[0].company}: {postings[0].title}" if n == 1
-            else f"{n} new internship postings"
-        )
+        subject = alert_subject(postings)
         unsub = self.unsubscribe_url(sub["token"])
         lead = "A new posting matched your alerts." if n == 1 else (
             f"{n} new postings matched your alerts."
@@ -181,40 +229,40 @@ class EmailSender:
                 + (f'<div style="color:#6b7280">{escape(where)}</div>' if where else "")
                 + "</div>"
             )
-        return self._build(
-            sub, subject, text, html,
-            f"You subscribed to new-posting alerts at {self.cfg.base_url}.",
-            unsub,
-        )
+        return self._build(sub, subject, text, html, unsub)
 
     def confirmation_message(self, sub: dict) -> EmailMessage:
         link = self.verify_url(sub["verify_token"])
         return self._build(
             sub,
+            # Plain and accurate: this message asks for one click and
+            # carries no postings, so its subject promises neither.
             "Confirm your Shortlist alerts",
+            # "seven days from now", not "from the request": a signup taken
+            # before this channel worked is mailed later than it was made,
+            # and the window runs from this message.
             ["Confirm this address to start receiving new-posting alerts:", "",
              link, "",
              "If you did not ask for this, ignore this message. Nothing is "
-             "sent to an address that never confirms, and the request is "
-             "deleted after seven days.", ""],
+             "sent to an address that never confirms, and this request is "
+             "deleted seven days from now.", ""],
             ['<p>Confirm this address to start receiving new-posting alerts:</p>',
              f'<p><a href="{escape(link, quote=True)}">Confirm my alerts</a></p>',
              "<p>If you did not ask for this, ignore this message. Nothing is "
-             "sent to an address that never confirms, and the request is "
-             "deleted after seven days.</p>"],
-            "You received this because this address was entered at "
-            f"{self.cfg.base_url}.",
+             "sent to an address that never confirms, and this request is "
+             "deleted seven days from now.</p>"],
             self.unsubscribe_url(sub["token"]),
         )
 
     def _build(
-        self, sub: dict, subject: str, text: list[str], html: list[str],
-        why: str, unsub: str,
+        self, sub: dict, subject: str, text: list[str], html: list[str], unsub: str,
     ) -> EmailMessage:
         """One message, both parts, every compliance element in both.
 
-        The postal address and the unsubscribe link are appended here rather
-        than by each caller, so no message shape can ever ship without them.
+        The footer is appended here rather than by each caller, so no
+        message shape can ever ship without it: the reason for receipt, the
+        postal address CAN-SPAM requires, what the reader can change, and
+        the unsubscribe link, in that order in both parts.
         """
         msg = EmailMessage(policy=BUILD_POLICY)
         msg["From"] = self.cfg.sender
@@ -228,16 +276,23 @@ class EmailSender:
         # mail client's one-click POST works with a body we never read.
         msg["List-Unsubscribe"] = f"<{unsub}>"
         msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
-        msg.set_content(
-            "\n".join([*text, why, f"Unsubscribe: {unsub}", self.cfg.postal_address])
-        )
+        msg.set_content("\n".join([
+            *text,
+            REASON_LINE,
+            f"Our Mailing Address: {self.cfg.postal_address}",
+            PREFERENCES_LINE,
+            f"{UNSUBSCRIBE_LABEL}: {unsub}",
+        ]))
         msg.add_alternative(
             '<div style="font:14px/1.6 -apple-system,Segoe UI,Helvetica,Arial,'
             'sans-serif;color:#161616;max-width:560px">'
             + "".join(html)
-            + f'<p style="color:#6b7280;font-size:12px">{escape(why)}<br>'
-            f'<a href="{escape(unsub, quote=True)}">Unsubscribe</a><br>'
-            f"{escape(self.cfg.postal_address)}</p></div>",
+            + '<p style="color:#6b7280;font-size:12px">'
+            + f"{escape(REASON_LINE)}<br>"
+            + f"Our Mailing Address: {escape(self.cfg.postal_address)}<br>"
+            + f"{escape(PREFERENCES_LINE)}<br>"
+            + f'<a href="{escape(unsub, quote=True)}">{UNSUBSCRIBE_LABEL}</a>'
+            + "</p></div>",
             subtype="html",
         )
         return msg
@@ -329,3 +384,44 @@ def build_sender(
     """The pipeline's sender: SES when it can be built, else the log
     placeholder that has always held this seam."""
     return email_sender(cfg, client, store) or LogSender()
+
+
+def send_pending_confirmations(store, sender: Sender, limit: int = 5) -> int:
+    """Mail the confirmations that could not be sent when the rows were made.
+
+    A signup taken while the email channel is dark creates the subscription
+    and no message, so the row carries a null confirmation_sent_at and the
+    prune leaves it alone. This is what turns that stored consent into the
+    message it was promised, on the first cycle after sending works.
+
+    A no-op until then: no SES sender, or no postal address, means nothing
+    can be sent and the rows keep waiting rather than logging a refusal per
+    row per cycle. Bounded three ways so a launch-day backlog drains instead
+    of arriving as a burst: this cycle's limit, the per-recipient window the
+    subscribe endpoint already enforces, and the durable daily cap.
+
+    Returns the number of confirmations SES accepted.
+    """
+    if not isinstance(sender, EmailSender) or not sender.cfg.postal_address:
+        return 0
+    # Deferred: web.py imports this module, so naming it at module scope
+    # would close the cycle. One limiter object, so a poller that mails a
+    # backlog and an endpoint that mails a new signup share one window.
+    from .web import CONFIRM_LIMIT
+
+    cap = sender.cfg.daily_cap
+    sent = 0
+    for sub in store.pending_confirmations(limit):
+        if cap and store.notify_sends_today(sub["id"]) >= cap:
+            continue
+        if not CONFIRM_LIMIT.allow(recipient_key(sub["target"])):
+            continue
+        if not sender.send_confirmation(sub):
+            continue  # stamped only on acceptance, so a failure retries
+        store.mark_confirmation_sent(sub["id"])
+        if cap:
+            store.count_notify_send(sub["id"])
+        sent += 1
+    if sent:
+        log.info("NOTIFY-CONFIRM %d pending confirmation(s) sent", sent)
+    return sent
