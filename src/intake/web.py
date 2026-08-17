@@ -754,7 +754,7 @@ def live_companies(store) -> list[dict]:
             return _companies_cache[1]
 
     spellings: dict[str, dict[str, int]] = {}
-    for p in store.all_postings():
+    for p in postings_snapshot(store):  # shared read; never its own table scan
         if p.status == Status.REJECTED:
             continue
         seen = spellings.setdefault(company_key(p.company), {})
@@ -923,32 +923,62 @@ def visitor_hash(salt: str, ip: str, ua: str) -> str:
     """
     return hashlib.sha256(f"{salt}{ip}{ua}".encode()).hexdigest()[:16]
 
-# The full postings payload is ~1.5 MB and every request rebuilds it from a
-# full table read. Against a hosted Postgres that read is metered egress, so
-# an uncached endpoint costs GB/day. The poller only changes rows every 120 s,
-# so serving a slightly stale copy is free accuracy-wise and collapses N
-# requests into one read per window.
-POSTINGS_TTL_S = 120.0  # matches the poller cycle: data cannot change faster
-_postings_cache: tuple[float, bytes] | None = None
+# Every consumer of the whole table shares one snapshot. Against a hosted
+# Postgres a full read is metered egress, and the board refetches on a timer
+# from every open tab, so reading per request costs GB/day. Two guards: inside
+# the TTL the cached rows are served without touching the database at all, and
+# after it a small version query decides whether a re-read is needed, so data
+# that has not changed is never sent twice.
+SNAPSHOT_TTL_S = 120.0  # the poller cycle: rows cannot change faster
+# (built_at, cache_key, version, rows). cache_key pins the cache to the store
+# it was read from, so a process serving a different database never sees
+# another one's rows.
+_snapshot: tuple[float, str, str | None, list] | None = None
+_snapshot_lock = threading.Lock()
+
+
+def postings_snapshot(store) -> list:
+    """All postings, cached process-wide. See SNAPSHOT_TTL_S."""
+    global _snapshot
+    now = time.monotonic()
+    key = getattr(store, "cache_key", "")
+    with _snapshot_lock:
+        fresh = _snapshot is not None and _snapshot[1] == key
+        if fresh and now - _snapshot[0] < SNAPSHOT_TTL_S:
+            return _snapshot[3]
+        version = store.data_version()
+        if fresh and version is not None and version == _snapshot[2]:
+            _snapshot = (now, key, version, _snapshot[3])  # unchanged: keep rows
+            return _snapshot[3]
+        rows = store.all_postings()
+        _snapshot = (now, key, version, rows)
+        return rows
+
+
+_postings_cache: tuple[list, bytes] | None = None
 _postings_lock = threading.Lock()
 
 
 def postings_body(db_path: Path) -> bytes:
-    """Serialized /api/postings payload, rebuilt at most once per TTL."""
+    """Serialized /api/postings payload.
+
+    Keyed on the snapshot's identity, so the JSON is rebuilt exactly when the
+    underlying rows are replaced and reused on every request in between.
+    """
     global _postings_cache
+    rows_in = postings_snapshot(open_store(db_path))
     with _postings_lock:
-        if _postings_cache and time.monotonic() - _postings_cache[0] < POSTINGS_TTL_S:
+        if _postings_cache and _postings_cache[0] is rows_in:
             return _postings_cache[1]
-        store = open_store(db_path)  # sqlite: per-request; postgres: shared
         rows = []
-        for p in store.all_postings():
+        for p in rows_in:
             d = p.model_dump(mode="json")
             d["countries"] = countries_of(p.locations)
             d["remote"] = is_remote(p.locations)
             d["role"] = classify_role(p.title)
             rows.append(d)
         body = json.dumps(rows).encode()
-        _postings_cache = (time.monotonic(), body)
+        _postings_cache = (rows_in, body)
         return body
 
 

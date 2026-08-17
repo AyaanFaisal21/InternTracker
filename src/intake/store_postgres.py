@@ -39,6 +39,7 @@ except ImportError as e:  # pragma: no cover
 class PostgresStore:
     def __init__(self, url: str):
         self.url = url
+        self.cache_key = url  # identifies the data a cache holds
         self._lock = threading.Lock()
         self._conn: psycopg.Connection | None = None
         # id -> (sources, locations, has_date_posted); built lazily, only in
@@ -142,6 +143,19 @@ class PostgresStore:
     def update(self, p: Posting) -> None:
         self._write(p)
 
+    def data_version(self) -> str | None:
+        """Cheap change token for read caches: one small row instead of a
+        full table read. A caller that holds a snapshot re-reads only when
+        this value moves, which in steady state (detections that merge
+        nothing) is never.
+        """
+        row = self._run(
+            lambda c: c.execute(
+                "SELECT max(updated_at) AS v, count(*) AS n FROM postings"
+            ).fetchone()
+        )
+        return f"{row['v']}:{row['n']}"  # count catches deletes, which leave max() flat
+
     def all_postings(self) -> list[Posting]:
         rows = self._run(
             lambda c: c.execute(
@@ -204,7 +218,10 @@ class PostgresStore:
                      qualifications=excluded.qualifications,
                      locations=excluded.locations, sources=excluded.sources,
                      status=excluded.status, reject_reason=excluded.reject_reason,
-                     verdict=excluded.verdict""",
+                     verdict=excluded.verdict,
+                     -- Stamped on every write so max(updated_at) is a valid
+                     -- change token for read caches. See data_version.
+                     updated_at=now()""",
                 (
                     p.id,
                     p.company,

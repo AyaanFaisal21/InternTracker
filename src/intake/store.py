@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS notify_sends (
 
 class Store:
     def __init__(self, path: Path | str):
+        self.cache_key = str(path)  # identifies the data a cache holds
         self.conn = sqlite3.connect(str(path))
         self.conn.row_factory = sqlite3.Row
         # Poller and web run as separate processes against this file. WAL
@@ -528,6 +529,15 @@ class Store:
         for col in CONSENT_COLUMNS:
             d.pop(col, None)
         return d
+
+    def data_version(self) -> str | None:
+        """Change token for read caches; see PostgresStore.data_version.
+
+        None means "cannot tell, rebuild": SQLite reads are local and free,
+        so there is nothing to protect against here, and the caller's TTL
+        still bounds the work.
+        """
+        return None
 
     def all_postings(self) -> list[Posting]:
         rows = self.conn.execute(

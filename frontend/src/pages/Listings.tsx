@@ -305,7 +305,9 @@ export default function Listings() {
       loadSugs(ctrl.signal);
     };
     load();
-    const t = setInterval(load, 30000);
+    // Matches the poller cycle. Refetching faster than the data can change
+    // only multiplies full-table reads on the server, one set per open tab.
+    const t = setInterval(load, 120000);
     return () => {
       clearInterval(t);
       ctrl.abort(); // cancel in-flight requests on unmount

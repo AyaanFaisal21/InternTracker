@@ -710,3 +710,43 @@ def test_suggest_collapses_duplicate_submissions(tmp_path):
     finally:
         SUGGEST_LIMIT.reset()
         server.shutdown()
+
+
+def test_snapshot_skips_reread_when_version_unchanged(monkeypatch):
+    """The cache must re-read only when the data actually changed.
+
+    This is the behaviour that keeps a hosted Postgres bill flat: the board
+    refetches on a timer from every open tab, and without this each refetch
+    was a full table read.
+    """
+    from intake import web
+
+    class FakeStore:
+        cache_key = "fake"
+
+        def __init__(self):
+            self.reads = 0
+            self.version = "v1"
+
+        def data_version(self):
+            return self.version
+
+        def all_postings(self):
+            self.reads += 1
+            return [f"rows-{self.reads}"]
+
+    monkeypatch.setattr(web, "_snapshot", None)
+    monkeypatch.setattr(web, "SNAPSHOT_TTL_S", 0.0)  # force the version check
+    store = FakeStore()
+
+    first = web.postings_snapshot(store)
+    assert store.reads == 1
+
+    again = web.postings_snapshot(store)
+    assert store.reads == 1          # unchanged version: no second read
+    assert again is first            # and the same rows are handed back
+
+    store.version = "v2"
+    changed = web.postings_snapshot(store)
+    assert store.reads == 2          # a real change does re-read
+    assert changed != first
