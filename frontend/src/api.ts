@@ -101,10 +101,15 @@ export interface SubscribeInput {
  * Success body of POST /api/subscribe. `matches` maps every submitted
  * company to its live posting count, so 0 means "not tracked yet". `token`
  * is the confirmation secret from the emailed link: never render it.
+ * `pending_verification` is true while the row waits for a click;
+ * `verification_sent` is false when the server saved the row but mailed
+ * nothing, so callers must not tell the reader to check their inbox.
  */
 export interface Subscription {
   id: number;
   token: string;
+  pending_verification: boolean;
+  verification_sent: boolean;
   matches: Record<string, number>;
 }
 
@@ -154,10 +159,11 @@ export async function fetchCompanies(signal?: AbortSignal): Promise<Company[]> {
 }
 
 /**
- * Request an email subscription. The server mails a confirmation link and
- * the subscription stays inactive until it is opened. A refusal comes back
- * as a typed result so callers can tell validation from rate limiting;
- * only network failures throw.
+ * Request an email subscription. The subscription stays inactive until the
+ * confirmation link is opened, and `verification_sent` on the result says
+ * whether that link was actually mailed. A refusal comes back as a typed
+ * result so callers can tell validation from rate limiting; only network
+ * failures throw.
  */
 export async function subscribe(
   input: SubscribeInput,

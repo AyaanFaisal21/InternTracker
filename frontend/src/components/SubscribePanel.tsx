@@ -1,7 +1,10 @@
 // The email-alert panel on the board. Collapsed to a single row until the
 // reader asks for it, then it expands in place: company picker, address,
 // submit. Nothing is subscribed until the reader opens the confirmation link
-// the server mails, so the success state leads with that.
+// the server mails, so the success state leads with that. When the server
+// saved the row but mailed nothing (verification_sent false, e.g. no email
+// channel is configured yet), the success state says so instead: the picks
+// are held and the confirmation goes out when alerts start.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -36,10 +39,12 @@ export default function SubscribePanel() {
   const [touched, setTouched] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  // Only the match map and the address are kept from the response. The
-  // confirmation token it also carries is never stored and never rendered.
+  // Only the match map, the address and whether a confirmation was mailed
+  // are kept from the response. The confirmation token it also carries is
+  // never stored and never rendered.
   const [matches, setMatches] = useState<Record<string, number> | null>(null);
   const [sentTo, setSentTo] = useState("");
+  const [mailed, setMailed] = useState(false);
 
   const uid = useId();
   const bodyId = `${uid}-body`;
@@ -109,6 +114,7 @@ export default function SubscribePanel() {
       if (res.ok) {
         setMatches(res.subscription.matches);
         setSentTo(address);
+        setMailed(res.subscription.verification_sent);
       } else {
         setError(REFUSALS[res.reason]);
       }
@@ -122,6 +128,7 @@ export default function SubscribePanel() {
   function reset() {
     setMatches(null);
     setSentTo("");
+    setMailed(false);
     setSelected([]);
     setEmail("");
     setTouched(false);
@@ -163,12 +170,27 @@ export default function SubscribePanel() {
       <div className="sub-body" id={bodyId} hidden={!open}>
         {matches ? (
           <div className="sub-done">
-            <h4>Check your inbox</h4>
-            <p className="sub-note">
-              We sent a confirmation link to <b>{sentTo}</b>. The alerts do not
-              start until you open it, so the mail has to arrive before
-              anything else happens.
-            </p>
+            {mailed ? (
+              <>
+                <h4>Check your inbox</h4>
+                <p className="sub-note">
+                  We sent a confirmation link to <b>{sentTo}</b>. The alerts do
+                  not start until you open it, so the mail has to arrive before
+                  anything else happens.
+                </p>
+              </>
+            ) : (
+              <>
+                <h4>
+                  Saved{" "}
+                  <span className="sub-flag">not live yet</span>
+                </h4>
+                <p className="sub-note">
+                  We saved your list for <b>{sentTo}</b>. Alerts do not run yet,
+                  and we will email you to confirm when they start.
+                </p>
+              </>
+            )}
             <ul className="sub-confirm">
               {confirmed.map(([name, n]) => (
                 <li key={name} className={n > 0 ? "" : "new"}>
@@ -258,7 +280,11 @@ export default function SubscribePanel() {
         )}
 
         <p className="sub-live sub-ok" role="status">
-          {matches ? `Request accepted. Confirmation email sent to ${sentTo}.` : ""}
+          {matches
+            ? mailed
+              ? `Request accepted. Confirmation email sent to ${sentTo}.`
+              : `Request saved for ${sentTo}. Alerts are not live yet, so no email was sent.`
+            : ""}
         </p>
         <p className="sub-live sub-err" role="alert">
           {error}
