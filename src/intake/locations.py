@@ -117,6 +117,14 @@ _US_STATE_NAMES = {
     "washington", "west virginia", "wisconsin", "wyoming",
 }
 
+# Canadian province and territory codes ("Calgary, AB" -> Canada). Matched
+# case sensitively against the original token: a lowercase "on" is the
+# English word (an "On-site" label splits to an "on" token), while boards
+# write the codes uppercase.
+_CA_PROVINCE_CODES = {
+    "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT",
+}
+
 # Bare-city labels seen on boards that never name the country.
 _CITY_HINTS: dict[str, str] = {
     # US hubs and their list-style abbreviations
@@ -127,6 +135,7 @@ _CITY_HINTS: dict[str, str] = {
     "mountain view": "United States", "menlo park": "United States",
     "sunnyvale": "United States", "cupertino": "United States",
     "redmond": "United States", "bellevue": "United States",
+    "south sf": "United States", "south san francisco": "United States",
     "seattle": "United States", "boston": "United States",
     "austin": "United States", "chicago": "United States",
     "atlanta": "United States", "denver": "United States",
@@ -158,6 +167,18 @@ _REMOTE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Connector words a remote-marker strip leaves at the front of a token:
+# "Remote in USA" tokenizes to "in USA", which matches no alias until the
+# connector goes. Stripped before every lookup.
+_CONNECTOR_RE = re.compile(
+    r"^(?:based\s+in|within|across|in)\s+(?:the\s+)?", re.IGNORECASE
+)
+
+# Last-resort label scan for US phrasings the tokenizer cannot resolve
+# ("Multiple US Cities"). Case sensitive on purpose: a lowercase "us" is
+# almost always the pronoun.
+_US_LABEL_RE = re.compile(r"\b(?:USA?|U\.S\.A?\.?)\b")
+
 
 def is_remote(locations: list[str]) -> bool:
     """True when any location label signals remote work. Hybrid labels
@@ -171,17 +192,24 @@ def countries_of(locations: list[str]) -> list[str]:
     nothing — an empty result means the region is unknown."""
     found: set[str] = set()
     for label in locations:
-        tokens = [t.strip().lower() for t in _SPLIT_RE.split(label) if t.strip()]
-        for tok in tokens:
+        before = len(found)
+        for raw in _SPLIT_RE.split(label):
             # "US Remote" must still read as the US: drop the remote
-            # markers, then match whatever place name remains.
-            tok = _REMOTE_RE.sub(" ", tok).strip()
-            if not tok:
+            # markers and leading connectors ("Remote in USA" -> "USA"),
+            # then match whatever place name remains.
+            raw = _REMOTE_RE.sub(" ", raw).strip()
+            raw = _CONNECTOR_RE.sub("", raw).strip()
+            if not raw:
                 continue
+            tok = raw.lower()
             if tok in _ALIAS_TO_COUNTRY:
                 found.add(_ALIAS_TO_COUNTRY[tok])
             elif tok in _US_STATE_CODES or tok in _US_STATE_NAMES:
                 found.add("United States")
+            elif raw in _CA_PROVINCE_CODES:
+                found.add("Canada")
             elif tok in _CITY_HINTS:
                 found.add(_CITY_HINTS[tok])
+        if len(found) == before and _US_LABEL_RE.search(label):
+            found.add("United States")
     return sorted(found)

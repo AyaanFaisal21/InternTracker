@@ -68,3 +68,53 @@ def test_remote_negatives():
     assert countries_of(["Remoteville"]) == []
     assert is_remote(["New York, NY (HQ)"]) is False
     assert is_remote([]) is False
+
+
+def test_remote_in_country_derives_and_stays_remote():
+    # "Remote in USA" left an "in usa" token that matched no alias, so 33
+    # prod rows served no country. Connector strip exposes the country.
+    for label, country in [
+        ("Remote in USA", "United States"),
+        ("Remote in US", "United States"),
+        ("Remote in Canada", "Canada"),
+    ]:
+        assert countries_of([label]) == [country]
+        assert is_remote([label]) is True
+    assert countries_of(["Remote in USA", "Remote in Canada"]) == [
+        "Canada", "United States",
+    ]
+
+
+def test_leading_connector_variants():
+    assert countries_of(["Based in USA"]) == ["United States"]
+    assert countries_of(["Remote within Canada"]) == ["Canada"]
+    assert countries_of(["Remote across the US"]) == ["United States"]
+
+
+def test_canadian_province_codes():
+    assert countries_of(["Calgary, AB"]) == ["Canada"]
+    for code in ("AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU",
+                 "ON", "PE", "QC", "SK", "YT"):
+        assert countries_of([f"Somewhere, {code}"]) == ["Canada"], code
+
+
+def test_province_codes_stay_case_sensitive():
+    # An "On-site" label splits to an "on" token; lowercase must never
+    # read as Ontario.
+    assert countries_of(["On-site"]) == []
+    assert countries_of(["on-site"]) == []
+
+
+def test_south_sf_is_us():
+    assert countries_of(["South SF"]) == ["United States"]
+    assert countries_of(["South San Francisco"]) == ["United States"]
+
+
+def test_multiple_us_cities_is_us():
+    assert countries_of(["Multiple US Cities"]) == ["United States"]
+
+
+def test_virtual_stays_remote_only():
+    # remote axis yes, but no country invented
+    assert is_remote(["Virtual"]) is True
+    assert countries_of(["Virtual"]) == []
