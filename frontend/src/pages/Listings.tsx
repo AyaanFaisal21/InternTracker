@@ -20,6 +20,8 @@ import {
 } from "../postings";
 import Masthead from "../components/Masthead";
 import SubscribePanel from "../components/SubscribePanel";
+import CompanyPicker, { companyKey } from "../components/CompanyPicker";
+import type { CompanyOption } from "../components/CompanyPicker";
 import "../styles/listings.css";
 
 import type { KeyboardEvent, ReactNode } from "react";
@@ -63,6 +65,77 @@ const US_CANADA = "us-ca";
 // "Remote" select option. Also a sentinel: it filters on the derived
 // boolean `remote`, not on membership in the countries list.
 const REMOTE = "remote";
+
+// Season terms in start order within a calendar year, each with the month
+// it starts. The year is the calendar year the term mostly falls in, so
+// January and February are Winter of that same year (Winter 2027).
+const TERMS: [string, number][] = [
+  ["Winter", 1],
+  ["Spring", 3],
+  ["Summer", 6],
+  ["Fall", 9],
+];
+
+// Four terms is the whole recruiting horizon; nothing beyond it is open to
+// apply to yet.
+const WINDOW = 4;
+
+// Season sentinel: the postings whose source stated no season at all.
+const UNLISTED = "unlisted";
+
+const SEASON_WORDS: Record<string, string> = {
+  summer: "Summer",
+  fall: "Fall",
+  autumn: "Fall", // one term, two source vocabularies
+  winter: "Winter",
+  spring: "Spring",
+};
+
+/**
+ * The terms worth offering on `now`: those whose start month has not passed.
+ * Read from the clock, never from the data's distinct strings and never
+ * from a literal year, so the list is right every August without an edit.
+ */
+function seasonWindow(now: Date): string[] {
+  const from = now.getFullYear() * 12 + now.getMonth() + 1;
+  const out: string[] = [];
+  for (let y = now.getFullYear(); out.length < WINDOW; y++)
+    for (const [name, month] of TERMS) {
+      if (y * 12 + month < from) continue;
+      out.push(`${name} ${y}`);
+      if (out.length === WINDOW) break;
+    }
+  return out;
+}
+
+/**
+ * The term a stored season string names, or null when it names none. The
+ * stored strings are free text from many sources, so case and punctuation
+ * are folded and the first season word plus a four-digit year decide. A
+ * bare year names no term and buys no bucket: which term it meant is a
+ * guess, and a wrong guess hides the posting from the term it belongs to.
+ */
+function seasonBucket(raw: string | null): string | null {
+  if (!raw) return null;
+  const text = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/([a-z])(\d)/g, "$1 $2");
+  const year = /\b(20\d{2})\b/.exec(text);
+  const word = /\b(summer|fall|autumn|winter|spring)\b/.exec(text);
+  return year && word ? `${SEASON_WORDS[word[1]]} ${year[1]}` : null;
+}
+
+/** Companies from ?company=: comma separated, blanks and repeats dropped. */
+function parseCompanies(raw: string | null): string[] {
+  const out: string[] = [];
+  for (const part of (raw ?? "").split(",")) {
+    const name = part.trim();
+    if (name && !out.some((n) => companyKey(n) === companyKey(name)))
+      out.push(name);
+  }
+  return out;
+}
 
 function SideSelect({
   head,
@@ -183,6 +256,8 @@ export default function Listings() {
   const [ctype, setCtype] = useState(params.get("type") || "all");
   const [aud, setAud] = useState(params.get("audience") || "all");
   const [q, setQ] = useState(params.get("q") || "");
+  // Multi-select, so it carries a list where the others carry one value.
+  const [firms, setFirms] = useState(() => parseCompanies(params.get("company")));
 
   const [data, setData] = useState<Posting[]>([]);
   const [sugs, setSugs] = useState<Suggestion[]>([]);
@@ -249,6 +324,7 @@ export default function Listings() {
     roleOpts,
     countryOpts,
     seasonOpts,
+    firmOpts,
   } = useMemo(() => {
     const openN = data.filter(isOpen).length;
 
@@ -259,9 +335,34 @@ export default function Listings() {
       .sort();
     const roles = [...new Set(data.map((p) => p.role))].sort();
     const countries = [...new Set(data.flatMap((p) => p.countries ?? []))].sort();
-    const seasons = [
-      ...new Set(data.map(seasonOf).filter((s): s is string => Boolean(s))),
-    ].sort();
+
+    // Companies come from the postings already loaded rather than from
+    // /api/companies: the counts then agree with every other count in this
+    // sidebar, no second request can disagree with the board, and the
+    // control works before the API answers or without it.
+    const spellings = new Map<string, Map<string, number>>();
+    for (const p of data) {
+      const key = companyKey(p.company);
+      if (!key) continue;
+      const seen = spellings.get(key);
+      if (seen) seen.set(p.company, (seen.get(p.company) ?? 0) + 1);
+      else spellings.set(key, new Map([[p.company, 1]]));
+    }
+
+    // Only terms still being recruited for, and only those the data can
+    // answer, so the list stays short instead of collecting every distinct
+    // string the sources ever spelled.
+    const termN = new Map<string, number>();
+    let unlistedN = 0;
+    for (const p of data) {
+      const raw = seasonOf(p);
+      if (!raw) {
+        unlistedN++;
+        continue;
+      }
+      const term = seasonBucket(raw);
+      if (term) termN.set(term, (termN.get(term) ?? 0) + 1);
+    }
 
     const statusOpts: Opt[] = [
       ["open", `open (${openN})`],
@@ -308,11 +409,33 @@ export default function Listings() {
       [REMOTE, "Remote"],
       ...countries.map((c): Opt => [c, c]),
     ];
+    // No counts here, unlike the other option lists: a term's count would
+    // exclude the unlisted postings that a term selection also shows, so
+    // the number would contradict the board.
     const seasonOpts: Opt[] = [
       ["all", "all"],
-      ["cycle:2027", "2027 cycle"],
-      ...seasons.map((s): Opt => [s, s]),
+      ...seasonWindow(new Date())
+        .filter((t) => termN.has(t))
+        .map((t): Opt => [t, t]),
+      ...(unlistedN ? [[UNLISTED, "unlisted"] as Opt] : []),
     ];
+    const firmOpts: CompanyOption[] = [...spellings.values()].map((seen) => {
+      // The commonest spelling names the row, ties alphabetically, so the
+      // label cannot wobble between two spellings across refreshes.
+      const byUse = [...seen.entries()].sort(
+        (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+      );
+      return {
+        name: byUse[0][0],
+        count: byUse.reduce((n, s) => n + s[1], 0),
+      };
+    });
+    // Busiest first, then by name, as /api/companies answers.
+    firmOpts.sort(
+      (a, b) =>
+        b.count - a.count ||
+        a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+    );
 
     return {
       openN,
@@ -323,6 +446,7 @@ export default function Listings() {
       roleOpts,
       countryOpts,
       seasonOpts,
+      firmOpts,
     };
   }, [data]);
 
@@ -344,10 +468,33 @@ export default function Listings() {
     setRole((v) => (roles.has(v) ? v : "all"));
     setCountry((v) => (countries.has(v) ? v : "all"));
     setSeason((v) => (seasons.has(v) ? v : "all"));
-  }, [loaded, typeOpts, audOpts, roleOpts, countryOpts, seasonOpts]);
+    // Same rule for the company chips: a ?company= name the board does not
+    // carry, or one whose last posting has just gone, is dropped rather
+    // than left as a chip that filters to nothing. Survivors take the
+    // board's own spelling, and the identical list is returned unchanged
+    // so a refresh that changes nothing cannot cause a render.
+    const spelled = new Map(firmOpts.map((c) => [companyKey(c.name), c.name]));
+    setFirms((v) => {
+      const next: string[] = [];
+      for (const name of v) {
+        const hit = spelled.get(companyKey(name));
+        if (hit && !next.includes(hit)) next.push(hit);
+      }
+      return next.length === v.length && next.every((n, i) => n === v[i])
+        ? v
+        : next;
+    });
+  }, [loaded, typeOpts, audOpts, roleOpts, countryOpts, seasonOpts, firmOpts]);
+
+  // Built once per render, not per posting: matches() runs across the whole
+  // board and the set is the same for every row.
+  const firmKeys = new Set(firms.map(companyKey));
 
   function matches(p: Posting): boolean {
     if (tab === "open" ? !isOpen(p) : p.status !== "rejected") return false;
+    // OR within the company set, AND against every other filter. An empty
+    // set is every company, like every other filter's "all".
+    if (firmKeys.size && !firmKeys.has(companyKey(p.company))) return false;
     const d = degreesOf(p);
     if (degree === "grad") {
       if (d.length && !d.includes("MS") && !d.includes("PhD")) return false;
@@ -384,16 +531,17 @@ export default function Listings() {
         }
       }
     }
+    // Unknown season passes every term: the backend maps a flexible posting
+    // ("Summer/Fall 2027", "year-round") to null on purpose, most postings
+    // never state a cycle at all, and hiding them empties the board.
+    // is_open verification is what retires dead-season postings, not this
+    // tag. A stated season that names no term in the window is a mismatch
+    // like any other, and stays reachable under "all".
     if (season !== "all") {
       const sv = seasonOf(p);
-      // Unknown season passes every season filter: most postings never state
-      // a cycle, and hiding them empties the board. is_open verification
-      // is what retires dead-season postings, not this tag.
-      if (sv) {
-        if (season.startsWith("cycle:")) {
-          if (!sv.includes(season.slice(6))) return false;
-        } else if (sv !== season) return false;
-      }
+      if (season === UNLISTED) {
+        if (sv) return false;
+      } else if (sv && seasonBucket(sv) !== season) return false;
     }
     const query = q.trim().toLowerCase();
     if (query) {
@@ -428,6 +576,20 @@ export default function Listings() {
       <Masthead />
       <div className="layout">
         <div className="sidebar">
+          {/* First in the column: its popup is clipped by the column's own
+              scroll box, so it needs the other controls beneath it to open
+              over, and it is the one control that spans the mobile grid. */}
+          <CompanyPicker
+            label="Company"
+            placeholder="search companies"
+            help="Type to search. Enter adds, Backspace removes."
+            options={firmOpts}
+            listState={loaded ? "ready" : "loading"}
+            selected={firms}
+            max={Infinity}
+            allowUnknown={false}
+            onChange={setFirms}
+          />
           <SideSelect head="Status" opts={statusOpts} value={tab} onChange={setTab} />
           <SideSelect head="Type" opts={typeOpts} value={ctype} onChange={setCtype} />
           <SideSelect head="Audience" opts={audOpts} value={aud} onChange={setAud} />

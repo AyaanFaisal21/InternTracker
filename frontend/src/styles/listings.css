@@ -11,6 +11,18 @@
                             letter-spacing:.4px; margin:0 0 4px 8px; }
 .page-listings .side-select { width:100%; background:#1e1e1e; color:#e6edf3; border:1px solid #363636;
                               border-radius:6px; padding:4px 8px; font-size:13px; }
+/* Company filter: the shared picker (picker.css) worn as a sidebar control.
+   Only metrics and the board's greys are set here; the column is 200px, so
+   the input takes its own row and chips wrap under it rather than sharing
+   a line with it. */
+.page-listings .sidebar .cp { margin-bottom:14px; }
+.page-listings .sidebar .cp-lab { color:#8b949e; letter-spacing:.4px; margin:0 0 4px 8px; }
+.page-listings .sidebar .cp-box { background:#1e1e1e; gap:4px; padding:4px 6px; }
+.page-listings .sidebar .cp-input { flex-basis:100%; min-width:0; padding:1px 2px; }
+.page-listings .sidebar .cp-chip { padding:1px 2px 1px 7px; font-size:12px; }
+.page-listings .sidebar .cp-dot { margin:0 4px; }
+.page-listings .sidebar .cp-pop { max-height:220px; }
+.page-listings .sidebar .cp-help { margin-top:5px; padding-left:8px; }
 .page-listings .banner { border:1px solid #363636; border-radius:8px; padding:12px 16px; margin-bottom:12px;
                          background:#1e1e1e; }
 .page-listings .banner h3 { margin:0 0 6px; font-size:15px; }
@@ -66,6 +78,11 @@
 /* Additive responsive fallback; desktop rendering is untouched. */
 @media (max-width: 900px) {
   .page-listings .layout { flex-direction:column; }
-  .page-listings .sidebar { position:static; width:auto; max-height:none;
+  /* overflow is visible here: nothing is sticky or height-capped to clip,
+     and the company popup must be free to open over the grid. */
+  .page-listings .sidebar { position:static; width:auto; max-height:none; overflow:visible;
                             display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+  /* Chips and a popup do not fit a half-width cell; spanning also keeps the
+     grid gapless, since a full-width first item leaves no hole to fill. */
+  .page-listings .sidebar .cp { grid-column:1 / -1; }
 }
