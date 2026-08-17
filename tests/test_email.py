@@ -125,7 +125,7 @@ def test_alert_request_carries_every_required_element():
 
     assert len(client.calls) == 1
     params = client.calls[0]
-    assert params["FromEmailAddress"] == "Shortlist <alerts@notify.short-list.app>"
+    assert params["FromEmailAddress"] == "Shortlist <alerts@short-list.app>"
     assert params["Destination"] == {
         "ToAddresses": ["student@scarletmail.rutgers.edu"]}
     assert params["ConfigurationSetName"] == "shortlist-events"
@@ -134,7 +134,7 @@ def test_alert_request_carries_every_required_element():
 
     msg = sent_message(client)
     assert msg["Subject"] == "2 new internship postings"
-    assert msg["From"] == "Shortlist <alerts@notify.short-list.app>"
+    assert msg["From"] == "Shortlist <alerts@short-list.app>"
     assert msg["To"] == "student@scarletmail.rutgers.edu"
     assert msg["Date"]                      # RFC 5322 requires one
     # Gmail and Yahoo require both of these from bulk senders.
@@ -237,7 +237,7 @@ def test_sandbox_rejection_is_named_and_not_retried(caplog, tmp_path):
     client = FakeSES(AwsError(
         "MessageRejected",
         "Email address is not verified. The following identities failed the "
-        "check in region US-EAST-2: alerts@notify.short-list.app",
+        "check in region US-EAST-2: alerts@short-list.app",
     ))
     sender = EmailSender(cfg(), client, store=store)
     with caplog.at_level(logging.ERROR, logger="intake"):

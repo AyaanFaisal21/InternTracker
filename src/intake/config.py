@@ -45,7 +45,9 @@ DEFAULT_RESOLVER_CACHE_DAYS = _env_int("INTAKE_RESOLVER_CACHE_DAYS", 30)
 # sits on a subdomain on purpose: short-list.app publishes DMARC p=reject
 # with sp=reject and strict alignment, so alert mail needs its own signed
 # subdomain and cannot spend the apex domain's reputation.
-NOTIFY_FROM_DEFAULT = "Shortlist <alerts@notify.short-list.app>"
+# Apex, not a subdomain: DKIM signs as d=short-list.app, which must match the
+# From domain exactly because the domain's DMARC sets adkim=s.
+NOTIFY_FROM_DEFAULT = "Shortlist <alerts@short-list.app>"
 NOTIFY_BASE_URL_DEFAULT = "https://short-list.app"
 NOTIFY_REGION_DEFAULT = "us-east-2"   # the region the EC2 node runs in
 NOTIFY_DAILY_CAP_DEFAULT = 3          # sends per subscriber per UTC day
