@@ -63,12 +63,6 @@ const US_CANADA = "us-ca";
 // boolean `remote`, not on membership in the countries list.
 const REMOTE = "remote";
 
-const PRESTIGE = [
-  "jane street", "openai", "anthropic", "google", "apple", "nvidia", "stripe",
-  "citadel", "hudson river trading", "two sigma", "palantir", "databricks",
-  "microsoft", "meta",
-];
-
 function SideSelect({
   head,
   opts,
@@ -243,8 +237,8 @@ export default function Listings() {
   }, []);
 
   // Everything here depends on `data` alone, so memoize it: without this the
-  // option lists, counts, and spotlight sort are rebuilt (O(options × n)) on
-  // every keystroke in the search and suggestion inputs.
+  // option lists and counts are rebuilt (O(options × n)) on every keystroke
+  // in the search and suggestion inputs.
   const {
     openN,
     statusOpts,
@@ -254,7 +248,6 @@ export default function Listings() {
     roleOpts,
     countryOpts,
     seasonOpts,
-    spots,
   } = useMemo(() => {
     const openN = data.filter(isOpen).length;
 
@@ -320,11 +313,6 @@ export default function Listings() {
       ...seasons.map((s): Opt => [s, s]),
     ];
 
-    const spots = data
-      .filter((p) => isOpen(p) && PRESTIGE.includes(p.company.toLowerCase()))
-      .sort((a, b) => (b.date_posted || "").localeCompare(a.date_posted || ""))
-      .slice(0, 2);
-
     return {
       openN,
       statusOpts,
@@ -334,7 +322,6 @@ export default function Listings() {
       roleOpts,
       countryOpts,
       seasonOpts,
-      spots,
     };
   }, [data]);
 
@@ -484,19 +471,6 @@ export default function Listings() {
                 </Fragment>
               ))}
             </div>
-          </div>
-          <div className="spotlights">
-            {spots.map((p) => (
-              <div className="spot" key={p.id}>
-                <div className="co">★ spotlight · {p.company}</div>
-                <div className="t">
-                  <a href={p.canonical_url || p.url} target="_blank" rel="noopener">
-                    {p.title}
-                  </a>
-                </div>
-                <div className="co">{postedLabel(p)}</div>
-              </div>
-            ))}
           </div>
           <div className="searchrow">
             <input

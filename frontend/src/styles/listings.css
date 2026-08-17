@@ -19,10 +19,6 @@
                                border-radius:6px; padding:5px 10px; margin-right:6px; font-size:13px; }
 .page-listings .banner button { background:#238636; color:#fff; border:1px solid #2ea04366; border-radius:6px;
                                 padding:5px 14px; cursor:pointer; font-size:13px; font-weight:600; }
-.page-listings .spotlights { display:flex; gap:12px; margin-bottom:12px; }
-.page-listings .spot { flex:1; border:1px solid #363636; border-radius:8px; padding:10px 14px; background:#1e1e1e; }
-.page-listings .spot .co { color:#8b949e; font-size:12px; }
-.page-listings .spot .t { font-weight:600; }
 .page-listings .searchrow { display:flex; gap:10px; margin-bottom:10px; }
 .page-listings .searchrow input { flex:1; background:#161616; color:#e6edf3; border:1px solid #363636;
                                   border-radius:6px; padding:7px 12px; font-size:14px; }
@@ -72,5 +68,4 @@
   .page-listings .layout { flex-direction:column; }
   .page-listings .sidebar { position:static; width:auto; max-height:none;
                             display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
-  .page-listings .spotlights { flex-direction:column; }
 }
