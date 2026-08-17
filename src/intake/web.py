@@ -19,7 +19,9 @@ embedded JS must be double-escaped or avoided; a stray \\n kills the script.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import socket
 import threading
 import time
@@ -706,6 +708,37 @@ UNSUBSCRIBE_LIMIT = RateLimiter(limit=30, window_s=60.0)
 # resolution cache TTL: inside it, a repeat is pure duplicate work.
 SUGGEST_DEDUPE_DAYS = 30
 
+# Self-declared automation. Crawlers are recorded as device='bot' rather than
+# dropped, so the filter's effect stays visible in the numbers instead of
+# silently deciding what counts as a visitor.
+BOT_UA_RE = re.compile(
+    r"bot|crawl|spider|slurp|bingpreview|headlesschrome|phantomjs|lighthouse"
+    r"|curl|wget|python-|go-http-client|java/|okhttp|libwww|scrapy"
+    r"|facebookexternalhit|feedfetcher|uptime|monitoring",
+    re.I,
+)
+MOBILE_UA_RE = re.compile(r"mobi|android|iphone|ipad|ipod|tablet", re.I)
+
+
+def classify_device(ua: str) -> str:
+    """Coarse class, the only thing kept from the user agent: the raw string
+    is a fingerprint on its own. An absent agent is automation too; every
+    browser sends one."""
+    if not ua or BOT_UA_RE.search(ua):
+        return "bot"
+    return "mobile" if MOBILE_UA_RE.search(ua) else "desktop"
+
+
+def visitor_hash(salt: str, ip: str, ua: str) -> str:
+    """Per-day visitor identity: sha256(salt + ip + user agent), 16 hex chars.
+
+    The same person on the same day lands on the same value, so uniques are
+    countable; the salt rotates at the UTC boundary and is deleted two days
+    later, so the same person on two days is two unrelated values and no
+    stored row can be walked back to an address, by us or anyone else.
+    """
+    return hashlib.sha256(f"{salt}{ip}{ua}".encode()).hexdigest()[:16]
+
 
 def make_handler(db_path: Path):
     class Handler(BaseHTTPRequestHandler):
@@ -781,7 +814,15 @@ def make_handler(db_path: Path):
                 if body is None:
                     return
                 page = str(body.get("page", "unknown"))[:40]
-                open_store(db_path).record_visit(page, self.headers.get("User-Agent", "")[:200])
+                ua = self.headers.get("User-Agent", "")
+                store = open_store(db_path)
+                # The address is hash input and nothing else: it reaches no
+                # column and no log line, here or downstream.
+                store.record_visit(
+                    page,
+                    visitor_hash(store.visit_salt(), self._client_ip(), ua),
+                    classify_device(ua),
+                )
                 self._send(200, b"{}", "application/json")
             elif self.path == "/api/subscribe":
                 if not SUBSCRIBE_LIMIT.allow(self._client_ip()):

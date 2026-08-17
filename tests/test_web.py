@@ -1,6 +1,7 @@
 """Web server tests: real HTTP server on an ephemeral port, real store.
-Covers the dashboard smoke path, the subscription endpoints, and the
-suggestion endpoint's spend defenses (validation and duplicate collapsing).
+Covers the dashboard smoke path, the subscription endpoints, the visit
+beacon's privacy contract, and the suggestion endpoint's spend defenses
+(validation and duplicate collapsing).
 
 Skips when the environment forbids loopback connections (some sandboxes do).
 """
@@ -28,7 +29,10 @@ def loopback_blocked() -> bool:
 
 from intake.schema import RawDetection, Source
 from intake.store import Store
-from intake.web import SUGGEST_LIMIT, make_handler
+from intake.web import SUGGEST_LIMIT, VISIT_LIMIT, make_handler, visitor_hash
+
+MAC = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
 
 def serve(db):
@@ -92,6 +96,77 @@ def test_dashboard_serves_html_and_json(tmp_path):
 
         assert httpx.get(f"{base}/nope").status_code == 404
     finally:
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_visit_beacon_stores_a_hash_and_never_the_address(tmp_path):
+    db = tmp_path / "vh.db"
+    Store(db)
+    VISIT_LIMIT.reset()  # the limiter is process-wide state shared by tests
+    ip = "198.51.100.23"  # the real client; every request arrives from Caddy
+    server, base = serve(db)
+    try:
+        r = httpx.post(f"{base}/api/visit", json={"page": "landing"},
+                       headers={"X-Forwarded-For": ip, "User-Agent": MAC})
+        assert r.status_code == 200 and r.json() == {}
+
+        store = Store(db)
+        row = store.conn.execute("SELECT * FROM visits").fetchone()
+        assert row["page"] == "landing" and row["device"] == "desktop"
+        assert row["ua"] is None
+        # Reproducible while today's salt lives, which is what makes the
+        # counts real, and irreversible once the salt is pruned.
+        assert row["visitor_hash"] == visitor_hash(store.visit_salt(), ip, MAC)
+
+        # The address reaches no column of any table, not merely no column
+        # of visits.
+        tables = [t[0] for t in store.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")]
+        for table in tables:
+            for stored in store.conn.execute(f"SELECT * FROM {table}"):
+                assert ip not in " ".join(str(v) for v in tuple(stored))
+
+        # A phone and a crawler behind the same address, told apart.
+        for ua in ("Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile Safari/537.36",
+                   "Mozilla/5.0 (compatible; Googlebot/2.1)"):
+            assert httpx.post(f"{base}/api/visit", json={"page": "listings"},
+                              headers={"X-Forwarded-For": ip,
+                                       "User-Agent": ua}).status_code == 200
+        devices = [v["device"] for v in
+                   store.conn.execute("SELECT device FROM visits ORDER BY id")]
+        assert devices == ["desktop", "mobile", "bot"]
+    finally:
+        VISIT_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_visit_beacon_honors_its_rate_limit(tmp_path):
+    db = tmp_path / "vr.db"
+    Store(db)
+    VISIT_LIMIT.reset()
+    server, base = serve(db)
+    beacon = {"page": "landing"}
+    try:
+        # One client, so the burst reuses a connection the way a browser
+        # does rather than minting 32 sockets.
+        with httpx.Client(headers={"User-Agent": MAC}) as client:
+            # 30 per minute, keyed on the forwarded address rather than on
+            # Caddy's, so one abusive client cannot spend everyone's window.
+            for _ in range(30):
+                ok = client.post(f"{base}/api/visit", json=beacon,
+                                 headers={"X-Forwarded-For": "198.51.100.9"})
+                assert ok.status_code == 200
+            over = client.post(f"{base}/api/visit", json=beacon,
+                               headers={"X-Forwarded-For": "198.51.100.9"})
+            assert over.status_code == 429
+            other = client.post(f"{base}/api/visit", json=beacon,
+                                headers={"X-Forwarded-For": "198.51.100.10"})
+            assert other.status_code == 200
+        assert Store(db).visit_count() == 31
+    finally:
+        VISIT_LIMIT.reset()
         server.shutdown()
 
 

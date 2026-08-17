@@ -130,3 +130,32 @@ create table if not exists resolver_spend (
 -- and the API server, whose owning role bypasses RLS.
 alter table company_resolutions enable row level security;
 alter table resolver_spend      enable row level security;
+
+-- Unique visitors without IP retention (src/intake/web.py visitor_hash).
+-- visitor_hash is sha256(that day's salt + ip + user agent) cut to 16 hex
+-- chars: repeatable within one UTC day, unrelatable across days, and derived
+-- from an address that is never written anywhere. device replaces the raw
+-- user agent, which is a fingerprint on its own, with a coarse class. ua
+-- keeps the rows written before this change; nothing writes it now.
+alter table visits add column if not exists visitor_hash text;
+alter table visits add column if not exists device text
+    check (device in ('mobile','desktop','bot'));
+
+-- Query pattern: every rollup in scripts/metrics.sql windows on at.
+create index if not exists visits_fresh_idx on visits (at desc);
+
+-- The salt behind visitor_hash, one row per UTC day. Rows older than two
+-- days are deleted as each new salt is minted, and a deleted salt makes that
+-- day's hashes irreversible even to us, which is the whole point of the
+-- design. Durable rather than in-process because the web container restarts
+-- on every deploy.
+create table if not exists visit_salts (
+    day  date primary key,              -- UTC day the salt covers
+    salt text not null
+);
+
+-- RLS on with no policies, and this table is the strictest case of it: a
+-- leaked live salt would let anyone re-derive today's hashes by guessing
+-- addresses. visits already runs RLS with no policies, so the hashes
+-- themselves stay off the anon REST surface as well.
+alter table visit_salts enable row level security;

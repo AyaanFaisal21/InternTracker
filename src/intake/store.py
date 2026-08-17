@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sqlite3
 import threading
 import uuid
@@ -78,10 +79,22 @@ CREATE TABLE IF NOT EXISTS suggestions (
 );
 
 CREATE TABLE IF NOT EXISTS visits (
-    id   INTEGER PRIMARY KEY AUTOINCREMENT,
-    page TEXT NOT NULL,
-    ua   TEXT,
-    at   TEXT NOT NULL DEFAULT (datetime('now'))
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    page         TEXT NOT NULL,
+    ua           TEXT,   -- rows written before the hash; nothing writes it now
+    visitor_hash TEXT,   -- sha256(day salt + ip + ua)[:16]; the ip is never stored
+    device       TEXT,   -- 'mobile' | 'desktop' | 'bot'
+    at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- One salt per UTC day, the input that makes visitor_hash unique per day and
+-- unrelatable across days. Durable and not in-process because the web
+-- container restarts on every deploy, and a fresh in-memory salt would split
+-- one visitor into two identities mid-day. Salts older than two days are
+-- deleted, after which those days' hashes are irreversible even by us.
+CREATE TABLE IF NOT EXISTS visit_salts (
+    day  TEXT PRIMARY KEY,          -- YYYY-MM-DD, UTC
+    salt TEXT NOT NULL
 );
 
 -- Resolver output, keyed by the normalized company name (schema.norm_text).
@@ -151,6 +164,11 @@ class Store:
             self.conn.execute(
                 "ALTER TABLE postings ADD COLUMN audience TEXT NOT NULL DEFAULT '[]'"
             )
+        vcols = {r[1] for r in self.conn.execute("PRAGMA table_info(visits)")}
+        if "visitor_hash" not in vcols:
+            self.conn.execute("ALTER TABLE visits ADD COLUMN visitor_hash TEXT")
+        if "device" not in vcols:
+            self.conn.execute("ALTER TABLE visits ADD COLUMN device TEXT")
         self.conn.commit()
 
     def get(self, posting_id: str) -> Posting | None:
@@ -276,8 +294,40 @@ class Store:
         self.conn.commit()
         return self.resolver_calls_today()
 
-    def record_visit(self, page: str, ua: str | None) -> None:
-        self.conn.execute("INSERT INTO visits (page, ua) VALUES (?, ?)", (page, ua))
+    def visit_salt(self) -> str:
+        """Today's visitor-hash salt, minted on the day's first visit and
+        reused until the UTC boundary. Creating one prunes salts older than
+        two days: without the salt, that day's hashes cannot be re-derived
+        from any IP, which is the point of storing a hash instead of one.
+        """
+        day = utc_day()
+        row = self.conn.execute(
+            "SELECT salt FROM visit_salts WHERE day = ?", (day,)
+        ).fetchone()
+        if row:
+            return row["salt"]
+        self.conn.execute(
+            "INSERT INTO visit_salts (day, salt) VALUES (?, ?) "
+            "ON CONFLICT(day) DO NOTHING",
+            (day, secrets.token_hex(32)),
+        )
+        self.conn.execute(
+            "DELETE FROM visit_salts WHERE day < date(?, '-2 days')", (day,)
+        )
+        self.conn.commit()
+        # Re-read instead of trusting the value just generated: threaded
+        # handlers race here, and one day must resolve to one salt or the
+        # same visitor splits into two hashes.
+        return self.conn.execute(
+            "SELECT salt FROM visit_salts WHERE day = ?", (day,)
+        ).fetchone()["salt"]
+
+    def record_visit(self, page: str, visitor_hash: str, device: str) -> None:
+        # ua is left out, not passed as None: the column holds history only.
+        self.conn.execute(
+            "INSERT INTO visits (page, visitor_hash, device) VALUES (?,?,?)",
+            (page, visitor_hash, device),
+        )
         self.conn.commit()
 
     def visit_count(self) -> int:

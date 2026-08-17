@@ -12,9 +12,10 @@ statement, so the retry cannot double-apply.
 
 from __future__ import annotations
 
+import secrets
 import threading
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from .schema import Posting, RawDetection, Source, Status, Verdict, suggestion_key
 
@@ -373,10 +374,42 @@ class PostgresStore:
 
     # -- visits -----------------------------------------------------------
 
-    def record_visit(self, page: str, ua: str | None) -> None:
+    def visit_salt(self) -> str:
+        """Same contract as the SQLite store: one durable salt per UTC day,
+        minted on first use, and minting one drops salts older than two days
+        so those days' hashes stop being re-derivable."""
+        day = utc_day()
+        row = self._run(
+            lambda c: c.execute(
+                "SELECT salt FROM visit_salts WHERE day = %s", (day,)
+            ).fetchone()
+        )
+        if row:
+            return row["salt"]
+        # DO UPDATE with the stored value is a no-op that still returns the
+        # existing row; DO NOTHING would return nothing when a concurrent
+        # request won the insert, and one day must resolve to one salt.
+        salt = self._run(
+            lambda c: c.execute(
+                "INSERT INTO visit_salts (day, salt) VALUES (%s, %s) "
+                "ON CONFLICT(day) DO UPDATE SET salt = visit_salts.salt "
+                "RETURNING salt",
+                (day, secrets.token_hex(32)),
+            ).fetchone()["salt"]
+        )
         self._run(
             lambda c: c.execute(
-                "INSERT INTO visits (page, ua) VALUES (%s, %s)", (page, ua)
+                "DELETE FROM visit_salts WHERE day < %s", (day - timedelta(days=2),)
+            )
+        )
+        return salt
+
+    def record_visit(self, page: str, visitor_hash: str, device: str) -> None:
+        # ua is left out, not passed as None: the column holds history only.
+        self._run(
+            lambda c: c.execute(
+                "INSERT INTO visits (page, visitor_hash, device) VALUES (%s,%s,%s)",
+                (page, visitor_hash, device),
             )
         )
 
