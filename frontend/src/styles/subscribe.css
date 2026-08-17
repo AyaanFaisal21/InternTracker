@@ -55,6 +55,36 @@
                          border-bottom: 1px solid var(--sub-scarlet); cursor: pointer; }
 .sub-again { margin-top: 12px; font-size: 13px; }
 
+/* Degree and location narrowing: real fieldsets around real checkboxes, so
+   the group is named for a screen reader and every box is reachable by tab
+   and space without a keydown handler of our own. The default browser
+   fieldset chrome is stripped; the legend keeps the picker's label type
+   (.cp-lab) so the three controls in this form read as one column. */
+.sub-group { margin: 12px 0 0; padding: 0; border: 0; }
+.sub-group .cp-help { margin-top: 6px; }
+.sub-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.sub-choice { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px;
+              font-size: 12.5px; color: var(--sub-ink); background: var(--sub-ground);
+              border: 1px solid var(--sub-rule); border-radius: 6px; cursor: pointer;
+              user-select: none; }
+.sub-choice:hover { border-color: #4a4a4a; }
+/* The picked state carries color and a heavier rule, never color alone. */
+.sub-choice.on { color: #7ee787; background: #3fb9501a; border-color: #3fb95066; }
+.sub-choice input { margin: 0; accent-color: #3fb950; cursor: pointer; }
+.sub-choice:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
+.sub-choice input:disabled { cursor: not-allowed; }
+
+/* What the current picks deliver, in words. It sits between the controls
+   and the address field on purpose: the consequence has to be readable
+   before the address is typed, not inferred from an empty inbox later. */
+.sub-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+               margin: 12px 0 0; padding: 8px 11px; font-size: 13px; color: var(--sub-ink);
+               background: var(--sub-ground); border-left: 2px solid var(--sub-scarlet);
+               border-radius: 0 6px 6px 0; }
+.sub-summary-lab { font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+                   text-transform: uppercase; color: var(--sub-ink-soft); }
+.sub-done .sub-summary { border-left-color: #3fb95066; }
+
 /* Live regions stay mounted so a message inserted later is announced. They
    collapse to nothing while empty instead of being display:none. */
 .sub-live { margin: 10px 0 0; font-size: 12.5px; }

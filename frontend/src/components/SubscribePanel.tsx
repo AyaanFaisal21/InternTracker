@@ -1,21 +1,82 @@
 // The email-alert panel on the board. Collapsed to a single row until the
-// reader asks for it, then it expands in place: company picker, address,
-// submit. Nothing is subscribed until the reader opens the confirmation link
-// the server mails, so the success state leads with that. When the server
-// saved the row but mailed nothing (verification_sent false, e.g. no email
-// channel is configured yet), the success state says so instead: the picks
-// are held and the confirmation goes out when alerts start.
+// reader asks for it, then it expands in place: company picker, degree and
+// location narrowing, address, submit. Nothing is subscribed until the
+// reader opens the confirmation link the server mails, so the success state
+// leads with that. When the server saved the row but mailed nothing
+// (verification_sent false, e.g. no email channel is configured yet), the
+// success state says so instead: the picks are held and the confirmation
+// goes out when alerts start.
+//
+// Degree and location are checkbox groups rather than typeaheads. Both are
+// short fixed sets, so a control that has to be searched costs more than it
+// gives, and neither can be typed wrong: a free-text country would let
+// someone subscribe to a spelling no posting carries and then wait on mail
+// that was never coming. Both default to nothing picked, which the server
+// reads as no constraint, and the summary line says so in words before
+// anyone submits.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { fetchCompanies, subscribe } from "../api";
-import type { Company, SubscribeRefusal } from "../api";
+import type { Company, DegreeLevel, SubscribeRefusal } from "../api";
 import CompanyPicker from "./CompanyPicker";
 import type { ListState } from "./CompanyPicker";
 import "../styles/subscribe.css";
 
 // Matches the backend's per-subscription company cap.
 const MAX_COMPANIES = 20;
+
+// Matches the backend's per-subscription country cap.
+const MAX_COUNTRIES = 10;
+
+// [stored value, checkbox label, the word the summary line uses].
+const DEGREE_OPTIONS: [DegreeLevel, string, string][] = [
+  ["BS", "Bachelors", "undergraduate"],
+  ["MS", "Masters", "masters"],
+  ["PhD", "PhD", "PhD"],
+];
+
+// Always offered whatever the board currently carries: they are this
+// audience's default search, and the "US & Canada" shortcut below is only
+// meaningful if both of its halves are pickable on their own.
+const HOME_COUNTRIES = ["United States", "Canada"];
+
+// Shorter forms for the summary line only. The stored value is always the
+// server's own country name, which is what the fan-out compares against.
+const SHORT_COUNTRY: Record<string, string> = {
+  "United States": "the US",
+  "United Kingdom": "the UK",
+  "United Arab Emirates": "the UAE",
+};
+
+/** "a", "a and b", "a, b and c". */
+function series(parts: string[]): string {
+  if (parts.length < 3) return parts.join(" and ");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * One line saying what this selection delivers, so the consequence is
+ * readable before the address is typed rather than inferred from silence
+ * afterwards. Nothing picked has to read as everything, since that is what
+ * the server does with it.
+ */
+function summarize(degrees: DegreeLevel[], countries: string[]): string {
+  const words = DEGREE_OPTIONS.filter(([v]) => degrees.includes(v)).map(
+    ([, , word]) => word,
+  );
+  const level = words.length
+    ? `${capitalize(series(words))} roles`
+    : "Roles at any degree level";
+  const where = countries.length
+    ? ` in ${series(countries.map((c) => SHORT_COUNTRY[c] ?? c))}`
+    : ", anywhere";
+  return `${level}${where}.`;
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -30,11 +91,22 @@ const REFUSALS: Record<SubscribeRefusal, string> = {
 const UNREACHABLE =
   "Could not reach the server. Check your connection and try again.";
 
-export default function SubscribePanel() {
+/**
+ * @param boardCountries countries the board currently derives, so the
+ * location choices are the ones postings actually carry. The caller already
+ * has them, which keeps this panel to its one request (/api/companies).
+ */
+export default function SubscribePanel({
+  boardCountries = [],
+}: {
+  boardCountries?: string[];
+}) {
   const [open, setOpen] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [listState, setListState] = useState<ListState>("loading");
   const [selected, setSelected] = useState<string[]>([]);
+  const [degrees, setDegrees] = useState<DegreeLevel[]>([]);
+  const [countries, setCountries] = useState<string[]>([]);
   const [email, setEmail] = useState("");
   const [touched, setTouched] = useState(false);
   const [sending, setSending] = useState(false);
@@ -50,6 +122,7 @@ export default function SubscribePanel() {
   const bodyId = `${uid}-body`;
   const emailId = `${uid}-email`;
   const emailErrId = `${uid}-email-err`;
+  const summaryId = `${uid}-summary`;
 
   // One controller for the panel's whole life: unmounting aborts whatever
   // is in flight, as the board does with its 30s refresh.
@@ -105,7 +178,14 @@ export default function SubscribePanel() {
         {
           channel: "email",
           target: address,
-          filters: { companies: selected },
+          // An empty dimension is left out rather than sent empty: absent
+          // is exactly how the server stores "no constraint", so the wire
+          // shape and the stored shape say the same thing.
+          filters: {
+            companies: selected,
+            ...(degrees.length ? { degrees } : {}),
+            ...(countries.length ? { countries } : {}),
+          },
         },
         abortRef.current?.signal,
       );
@@ -130,6 +210,8 @@ export default function SubscribePanel() {
     setSentTo("");
     setMailed(false);
     setSelected([]);
+    setDegrees([]);
+    setCountries([]);
     setEmail("");
     setTouched(false);
     setError("");
@@ -141,6 +223,63 @@ export default function SubscribePanel() {
     () => companies.map((c) => ({ name: c.name, count: c.postings })),
     [companies],
   );
+
+  // The two home countries first, then whatever else the board carries,
+  // alphabetically. Anything already picked stays on the list even after the
+  // board's last posting there closes: the board refreshes every 30s under a
+  // reader who may be mid-selection, and a pick with no box left is one they
+  // can still see in the summary but no longer undo.
+  const places = useMemo(
+    () => [
+      ...HOME_COUNTRIES,
+      ...[...new Set([...boardCountries, ...countries])]
+        .filter((c) => !HOME_COUNTRIES.includes(c))
+        .sort((a, b) => a.localeCompare(b)),
+    ],
+    [boardCountries, countries],
+  );
+
+  const full = countries.length >= MAX_COUNTRIES;
+  // Derived rather than stored: "US & Canada" is a shortcut onto the two
+  // real names, so it cannot disagree with the boxes underneath it.
+  const homeOn = HOME_COUNTRIES.every((c) => countries.includes(c));
+
+  function toggleDegree(level: DegreeLevel) {
+    setDegrees((was) =>
+      was.includes(level)
+        ? was.filter((d) => d !== level)
+        : DEGREE_OPTIONS.map(([v]) => v).filter(
+            (v) => v === level || was.includes(v),
+          ),
+    );
+  }
+
+  function toggleCountry(name: string) {
+    setCountries((was) =>
+      was.includes(name)
+        ? was.filter((c) => c !== name)
+        : was.length >= MAX_COUNTRIES
+          ? was
+          : places.filter((c) => c === name || was.includes(c)),
+    );
+  }
+
+  // Turning the shortcut on can add two names at once, so it has its own
+  // read of the cap rather than borrowing the single-country one.
+  const homeFull =
+    !homeOn &&
+    countries.length + HOME_COUNTRIES.filter((c) => !countries.includes(c)).length >
+      MAX_COUNTRIES;
+
+  function toggleHome() {
+    setCountries((was) =>
+      HOME_COUNTRIES.every((c) => was.includes(c))
+        ? was.filter((c) => !HOME_COUNTRIES.includes(c))
+        : places.filter((c) => HOME_COUNTRIES.includes(c) || was.includes(c)),
+    );
+  }
+
+  const summary = summarize(degrees, countries);
 
   const untracked =
     listState === "ready"
@@ -206,6 +345,9 @@ export default function SubscribePanel() {
                 </li>
               ))}
             </ul>
+            <p className="sub-summary">
+              <span className="sub-summary-lab">You will get</span> {summary}
+            </p>
             <button type="button" className="sub-again" onClick={reset}>
               Set up another alert
             </button>
@@ -213,8 +355,8 @@ export default function SubscribePanel() {
         ) : (
           <form onSubmit={(e) => void submit(e)} noValidate>
             <p className="sub-note sub-intro">
-              We email you when a new posting from one of these companies
-              clears verification.
+              We email you when a new posting clears verification and matches
+              everything you pick below.
             </p>
 
             <CompanyPicker
@@ -247,6 +389,76 @@ export default function SubscribePanel() {
                 </button>
               </p>
             )}
+
+            <fieldset className="sub-group" aria-describedby={summaryId}>
+              <legend className="cp-lab">Degree levels</legend>
+              <div className="sub-choices">
+                {DEGREE_OPTIONS.map(([value, text]) => (
+                  <label
+                    key={value}
+                    className={
+                      degrees.includes(value) ? "sub-choice on" : "sub-choice"
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={degrees.includes(value)}
+                      disabled={sending}
+                      onChange={() => toggleDegree(value)}
+                    />
+                    {text}
+                  </label>
+                ))}
+              </div>
+              <p className="cp-help">
+                Leave every box clear for all of them. A posting that never
+                states a level comes through whatever you pick here.
+              </p>
+            </fieldset>
+
+            <fieldset className="sub-group" aria-describedby={summaryId}>
+              {/* Direct child of the fieldset: a legend nested inside
+                  anything else stops naming the group. */}
+              <legend className="cp-lab">Where</legend>
+              <div className="sub-choices">
+                <label className={homeOn ? "sub-choice on" : "sub-choice"}>
+                  <input
+                    type="checkbox"
+                    checked={homeOn}
+                    disabled={sending || homeFull}
+                    onChange={toggleHome}
+                  />
+                  US &amp; Canada
+                </label>
+                {places.map((name) => (
+                  <label
+                    key={name}
+                    className={
+                      countries.includes(name) ? "sub-choice on" : "sub-choice"
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={countries.includes(name)}
+                      disabled={sending || (full && !countries.includes(name))}
+                      onChange={() => toggleCountry(name)}
+                    />
+                    {name}
+                  </label>
+                ))}
+              </div>
+              <p className="cp-help">
+                Leave every box clear for anywhere. Remote roles, and postings
+                whose location we could not read, come through whatever you
+                pick here.
+                {countries.length > 0 &&
+                  ` ${countries.length} of ${MAX_COUNTRIES} picked.`}
+              </p>
+            </fieldset>
+
+            <p className="sub-summary" id={summaryId}>
+              <span className="sub-summary-lab">You will get</span> {summary}
+            </p>
 
             <div className="sub-field">
               <label className="cp-lab" htmlFor={emailId}>

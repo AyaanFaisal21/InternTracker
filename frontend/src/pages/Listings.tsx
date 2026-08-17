@@ -322,6 +322,7 @@ export default function Listings() {
     audOpts,
     degreeOpts,
     roleOpts,
+    countries: boardCountries,
     countryOpts,
     seasonOpts,
     firmOpts,
@@ -444,6 +445,10 @@ export default function Listings() {
       audOpts,
       degreeOpts,
       roleOpts,
+      // Handed to the subscribe panel as well as spent on countryOpts: the
+      // alert offers the regions the board carries, so a subscriber cannot
+      // pick one no posting has ever named.
+      countries,
       countryOpts,
       seasonOpts,
       firmOpts,
@@ -635,7 +640,7 @@ export default function Listings() {
               ))}
             </div>
           </div>
-          <SubscribePanel />
+          <SubscribePanel boardCountries={boardCountries} />
           <div className="searchrow">
             <input
               placeholder="Search title, company, qualifications"

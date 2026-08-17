@@ -90,11 +90,26 @@ export interface Company {
   postings: number;
 }
 
-/** Body of POST /api/subscribe. Only email exists as a channel today. */
+/**
+ * Body of POST /api/subscribe. Only email exists as a channel today.
+ *
+ * Every filter dimension is ANDed with the others and ORed within itself.
+ * Omitting one, or sending it empty, is "no constraint on that dimension"
+ * and never "match nothing", so a subscriber who picks no degree hears
+ * about every degree. `countries` holds the server's own country names
+ * (`Posting.countries`), and remote or unknown-region postings clear every
+ * country selection, as they do on the board. The server rejects a degree
+ * outside BS/MS/PhD, more than 10 countries, and a country name over 60
+ * characters.
+ */
 export interface SubscribeInput {
   channel: "email";
   target: string;
-  filters: { companies: string[] };
+  filters: {
+    companies: string[];
+    degrees?: DegreeLevel[];
+    countries?: string[];
+  };
 }
 
 /**
