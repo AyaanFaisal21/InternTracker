@@ -13,7 +13,7 @@ COPY pyproject.toml ./
 COPY src ./src
 COPY config ./config
 COPY scripts ./scripts
-RUN pip install --no-cache-dir ".[postgres]"
+RUN pip install --no-cache-dir ".[postgres,email]"
 
 FROM base AS web
 ENV INTAKE_BIND=0.0.0.0

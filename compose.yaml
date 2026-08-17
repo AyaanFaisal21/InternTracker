@@ -19,6 +19,15 @@ services:
     environment:
       # set -> postgres store; empty -> sqlite on the shared volume
       - DATABASE_URL=${SUPABASE_URL_POSTGRES:-}
+      # web sends the confirmation email at subscribe time, so it needs the
+      # same notify config as the poller. AWS credentials come from the
+      # instance role, never from here.
+      - AWS_REGION=${AWS_REGION:-us-east-2}
+      - NOTIFY_FROM=${NOTIFY_FROM:-}
+      - NOTIFY_POSTAL_ADDRESS=${NOTIFY_POSTAL_ADDRESS:-}
+      - NOTIFY_BASE_URL=${NOTIFY_BASE_URL:-https://short-list.app}
+      - SES_CONFIGURATION_SET=${SES_CONFIGURATION_SET:-}
+      - NOTIFY_DAILY_CAP=${NOTIFY_DAILY_CAP:-3}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c",
@@ -37,6 +46,13 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - DATABASE_URL=${SUPABASE_URL_POSTGRES:-}
+      - INTAKE_RESOLVER_BUDGET=${INTAKE_RESOLVER_BUDGET:-10}
+      - AWS_REGION=${AWS_REGION:-us-east-2}
+      - NOTIFY_FROM=${NOTIFY_FROM:-}
+      - NOTIFY_POSTAL_ADDRESS=${NOTIFY_POSTAL_ADDRESS:-}
+      - NOTIFY_BASE_URL=${NOTIFY_BASE_URL:-https://short-list.app}
+      - SES_CONFIGURATION_SET=${SES_CONFIGURATION_SET:-}
+      - NOTIFY_DAILY_CAP=${NOTIFY_DAILY_CAP:-3}
     restart: unless-stopped
 
   # Build-and-exit: refreshes the static bundle Caddy serves. Runs on
