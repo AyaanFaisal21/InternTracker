@@ -1,0 +1,119 @@
+# DO NOT APPLY THIS. It is here to show the shape, not to be run.
+#
+# The nightly backup should stay in .github/workflows/backup.yml. A
+# CronJob is a clean mechanical fit for a nightly job, but moving this one
+# onto the node makes it worse in four ways:
+#
+# 1. The dump would land on the node's EBS root volume. The node is the
+#    single point of failure in this whole system. Putting the backup on
+#    the thing most likely to die is the one place a backup must not be.
+#    GitHub Actions artifacts are somewhere else, which is the point.
+# 2. Two more secrets would move onto the box. DATABASE_URL is already
+#    there, but BACKUP_PASSPHRASE lives only in GitHub secrets today, and
+#    a passphrase stored next to the ciphertext protects nothing.
+# 3. Retention is free in Actions (retention-days: 90) and is a find
+#    -mtime cron job here, on a small disk that already holds multi-GB
+#    poller images.
+# 4. No image exists with pg_dump 17 and gpg together, so the job installs
+#    gnupg at runtime on every run. A backup that depends on a package
+#    mirror being up is a backup with a new failure mode.
+#
+# The database is Supabase, not the node, so nothing about this backup gets
+# easier by being closer to the cluster. There is no local database to
+# reach that Actions cannot.
+#
+# The one variant that would beat Actions: dump, encrypt, then
+# `aws s3 cp` to a bucket, authenticating with the EC2 instance role that
+# is already attached, with retention as an S3 lifecycle rule. That needs
+# a bucket and an IAM policy addition, and neither exists yet.
+#
+# If applied anyway, this needs BACKUP_PASSPHRASE added to the
+# shortlist-secrets Secret and a PVC to write into.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-store
+  namespace: shortlist
+  labels:
+    app.kubernetes.io/part-of: shortlist
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 4Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shortlist-backup
+  namespace: shortlist
+  labels:
+    app.kubernetes.io/name: shortlist-backup
+    app.kubernetes.io/part-of: shortlist
+spec:
+  # 09:00 UTC, matching the Actions workflow.
+  schedule: "0 9 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: dump
+              # pg_dump must be at least the server version. Supabase runs
+              # Postgres 17.
+              image: postgres:17-alpine
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  apk add --no-cache gnupg
+                  # Backticks, not dollar-parenthesis command substitution.
+                  # Kubernetes runs its own dollar-parenthesis VAR
+                  # substitution across args before the shell ever sees
+                  # them. An unresolvable name passes through unchanged, so
+                  # a dollar-paren date call happens to survive, but
+                  # relying on that is a trap. Backticks are invisible to
+                  # the substituter. Plain $VAR is untouched either way,
+                  # which is why the env reads below are safe.
+                  stamp=`date -u +%Y%m%dT%H%M%SZ`
+                  pg_dump "$DATABASE_URL" -Fc -f /backup/shortlist-$stamp.dump
+                  gpg --batch --symmetric --cipher-algo AES256 \
+                      --passphrase "$BACKUP_PASSPHRASE" \
+                      /backup/shortlist-$stamp.dump
+                  rm -f /backup/shortlist-$stamp.dump
+                  find /backup -name '*.dump.gpg' -mtime +14 -delete
+                  ls -la /backup
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: shortlist-secrets
+                      key: DATABASE_URL
+                - name: BACKUP_PASSPHRASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: shortlist-secrets
+                      key: BACKUP_PASSPHRASE
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: backup-store

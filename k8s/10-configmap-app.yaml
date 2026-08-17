@@ -1,0 +1,40 @@
+# Non-secret runtime config. This is the compose `environment:` block minus
+# anything that must not land in git.
+#
+# AWS credentials are absent on purpose. boto3 resolves the EC2 instance
+# role over IMDSv2 (see NotifySettings in src/intake/config.py), so no
+# long-lived AWS key exists to put here. See the README section
+# "instance role from a pod" for the one thing k3s changes about that.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shortlist-config
+  namespace: shortlist
+  labels:
+    app.kubernetes.io/part-of: shortlist
+data:
+  # Poller loop interval, seconds. This is a CLI flag, not an env var the
+  # code reads, so the poller Deployment substitutes it into args as
+  # $(POLL_INTERVAL).
+  POLL_INTERVAL: "120"
+
+  # Hostname Caddy serves. Same knob as DOMAIN in the compose .env file.
+  # A bare ":80" here disables automatic HTTPS, same as compose.
+  DOMAIN: "short-list.app"
+
+  # SES delivery (senders.py). Read by both web and poller: the poller
+  # sends alerts, web sends the double opt-in confirmation.
+  AWS_REGION: "us-east-2"
+  NOTIFY_FROM: "Shortlist <alerts@notify.short-list.app>"
+  NOTIFY_BASE_URL: "https://short-list.app"
+  SES_CONFIGURATION_SET: ""
+  NOTIFY_DAILY_CAP: "3"
+
+  # CAN-SPAM postal address. Empty means senders.py refuses to send, which
+  # is the correct default while the channel is dark. Do not commit a home
+  # address to git. If the address is a home address, put it in the Secret
+  # instead and add a secretKeyRef for it on both Deployments.
+  NOTIFY_POSTAL_ADDRESS: ""
+
+  # Resolver spend ceiling, calls per UTC day. Compose sets 10.
+  INTAKE_RESOLVER_BUDGET: "10"

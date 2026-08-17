@@ -1,0 +1,15 @@
+# The serving path outranks the poller.
+#
+# On a 2 GB node the kubelet will eventually have to evict something. This
+# class decides the order: web and caddy carry it, the poller does not, so
+# the poller dies first and the site stays up. A killed poller costs one
+# detection cycle and re-polls on restart. A killed web pod costs the site.
+#
+# This creates no memory. It only picks who loses when memory runs out.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: shortlist-serving
+value: 100
+globalDefault: false
+description: "web and caddy: scheduled first, evicted last"

@@ -1,0 +1,21 @@
+# ClusterIP only. Nothing outside the cluster talks to the API directly;
+# Caddy is the single origin, exactly as in compose. The Caddyfile
+# ConfigMap proxies to `shortlist-web:8642`, which resolves through
+# CoreDNS inside the namespace.
+apiVersion: v1
+kind: Service
+metadata:
+  name: shortlist-web
+  namespace: shortlist
+  labels:
+    app.kubernetes.io/name: shortlist-web
+    app.kubernetes.io/part-of: shortlist
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: shortlist-web
+  ports:
+    - name: http
+      port: 8642
+      targetPort: http
+      protocol: TCP

@@ -1,0 +1,122 @@
+# The detection loop. Image: `docker build --target poller`, which is the
+# web base plus Playwright and headless Chromium for the Apple detector.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shortlist-poller
+  namespace: shortlist
+  labels:
+    app.kubernetes.io/name: shortlist-poller
+    app.kubernetes.io/part-of: shortlist
+    app.kubernetes.io/component: worker
+spec:
+  # EXACTLY ONE REPLICA. NEVER SCALE THIS. Do not attach an HPA.
+  #
+  # The loop is serial and partitions no work. There is no shard key, no
+  # lease, no queue. Two pollers poll the same boards in the same cycle and
+  # mint the same detections. Dedupe absorbs the duplicate rows, so the
+  # damage is not visible in the database, which is what makes it easy to
+  # miss. What is not absorbed is spend: every replica pays the resolver
+  # and the verifier again for the same postings, against a daily budget
+  # that counts calls and not callers. Two replicas is double the Claude
+  # bill and double the request rate at every ATS we poll, which is the
+  # single fastest way to earn a ban.
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shortlist-poller
+  strategy:
+    # Recreate for the same reason. The default RollingUpdate surges to two
+    # pods, so a deploy would run the old and the new poller side by side
+    # for as long as the old one takes to drain: one full cycle of
+    # duplicate polling and duplicate spend on every deploy.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shortlist-poller
+        app.kubernetes.io/part-of: shortlist
+    spec:
+      # No priorityClassName. The poller is deliberately the first thing
+      # the kubelet evicts under memory pressure. See 05-priorityclass.yaml.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: poller
+          image: shortlist-poller:v0
+          imagePullPolicy: IfNotPresent
+          command: ["intake"]
+          # $(POLL_INTERVAL) expands from the env entry below. The interval
+          # is a CLI flag, so a ConfigMap edit plus a rollout restart is the
+          # way to change it.
+          #
+          # --no-verify matches compose and the Dockerfile default.
+          # Postings park at `gated` until the verification policy is
+          # decided. Drop the flag and give the pod ANTHROPIC_API_KEY to
+          # turn verification on.
+          args: ["loop", "-i", "$(POLL_INTERVAL)", "--no-verify"]
+          envFrom:
+            - configMapRef:
+                name: shortlist-config
+          env:
+            # Declared explicitly, not just via envFrom, because $(VAR)
+            # substitution in args resolves against the env list.
+            - name: POLL_INTERVAL
+              valueFrom:
+                configMapKeyRef:
+                  name: shortlist-config
+                  key: POLL_INTERVAL
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shortlist-secrets
+                  key: DATABASE_URL
+            # optional: the key gates the verifier and the company
+            # resolver. Absent means both stay off, which is today's state.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: shortlist-secrets
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+          # No probes. The loop serves no port and exposes no health
+          # endpoint, so an HTTP probe has nothing to hit and an exec probe
+          # would only prove the process table is non-empty. A wedged
+          # cycle is caught by watching row freshness in the store, not by
+          # the kubelet. That is a real gap and it is the same gap compose
+          # has today.
+          resources:
+            # Two very different numbers in one process.
+            #
+            # Steady state is a python HTTP loop at roughly 140-160Mi.
+            # Every cycle the Apple detector launches headless Chromium,
+            # drives one search, and closes it. Chromium is not resident
+            # between cycles, but while it runs the pod peaks near 500Mi.
+            #
+            # So: request the steady figure with margin, limit above the
+            # peak. Requesting the peak would reserve 500Mi that sits idle
+            # 95% of the time on a node that has none to spare.
+            #
+            # The cost of this choice: the pod is Burstable and spends most
+            # of a cycle above its request, which is exactly what the
+            # kubelet ranks first for eviction. That is the intended
+            # outcome. A killed poller restarts and re-polls; nothing is
+            # lost but one cycle.
+            requests:
+              cpu: 100m
+              memory: 320Mi
+            limits:
+              memory: 768Mi
+          # No securityContext hardening here, on purpose. Chromium needs
+          # its own sandbox primitives, and browser.py launches it with no
+          # --no-sandbox flag. Dropping capabilities or pinning a seccomp
+          # profile is the standard way to break headless Chromium in a
+          # container. Kubernetes defaults to unconfined seccomp while
+          # Docker applies its default profile, so the pod is no more
+          # restricted than the compose container is today. If Chromium
+          # starts failing to launch here, that is the first thing to check,
+          # and the second is /dev/shm: both runtimes give it 64Mi, and the
+          # fix is an emptyDir with medium: Memory at /dev/shm, sized
+          # inside the 768Mi limit because in-memory volumes count against
+          # it.

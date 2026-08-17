@@ -1,0 +1,30 @@
+# Caddy's ACME state: the Let's Encrypt account key, the issued
+# certificate, and the OCSP staples. This has to survive a pod restart.
+#
+# Without it every pod restart requests a new certificate, and Let's
+# Encrypt allows 5 duplicate certificates per exact name set per week. A
+# crash loop would burn that quota in minutes and lock the site out for a
+# week. short-list.app is HSTS-preloaded, so "serve plain http until the
+# cert comes back" is not an option. There is no degraded mode.
+#
+# storageClassName local-path is the k3s built-in provisioner. It creates
+# a directory under /var/lib/rancher/k3s/storage on this node. It is not
+# replicated and it is not a backup. It only has to outlive a pod, which
+# is exactly the requirement.
+#
+# Binding is WaitForFirstConsumer: the directory does not exist until a pod
+# that mounts it is scheduled. The README cutover uses that fact.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: caddy-data
+  namespace: shortlist
+  labels:
+    app.kubernetes.io/part-of: shortlist
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi

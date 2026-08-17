@@ -1,0 +1,139 @@
+# Ingress. Caddy stays, Traefik is disabled at k3s install time.
+#
+# There is no Ingress object in this directory and that is the decision,
+# not an omission. Caddy is the ingress: it terminates TLS, serves the
+# React bundle, and proxies /api to the web Service. The README explains
+# why this beats Traefik plus cert-manager on this node.
+#
+# Ports 80 and 443 are hostPorts, so the pod binds the node's real ports
+# the way the compose container does. Two reasons over a LoadBalancer
+# Service. First, klipper-lb is one more pod on a node with no memory to
+# donate. Second and larger: a LoadBalancer Service with the default
+# externalTrafficPolicy: Cluster source-NATs the client address to the
+# node IP, so Caddy would stamp every X-Forwarded-For with the same value
+# and web.py's per-IP rate limiter would collapse every visitor into one
+# bucket. hostPort preserves the client address.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shortlist-caddy
+  namespace: shortlist
+  labels:
+    app.kubernetes.io/name: shortlist-caddy
+    app.kubernetes.io/part-of: shortlist
+    app.kubernetes.io/component: ingress
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shortlist-caddy
+  strategy:
+    # Recreate is mandatory here, not a preference. A surge pod cannot bind
+    # hostPort 80 while the old pod holds it, so a RollingUpdate deadlocks:
+    # the new pod never becomes ready and the old one is never removed.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shortlist-caddy
+        app.kubernetes.io/part-of: shortlist
+    spec:
+      priorityClassName: shortlist-serving
+      automountServiceAccountToken: false
+      # Cluster DNS on purpose. hostNetwork would also open 80 and 443, but
+      # it inherits the node's resolv.conf, and Caddy would stop resolving
+      # `shortlist-web`.
+      initContainers:
+        # Same job as the build-and-exit `frontend` service in compose:
+        # drop the built React bundle where Caddy can serve it. Here it is
+        # an initContainer over an emptyDir instead of a shared volume,
+        # which is strictly better. The bundle is rebuilt into the volume
+        # every time the pod starts, the copy cannot race a running Caddy,
+        # and no PVC is involved. The compose `rm -rf /srv/frontend/*` is
+        # dropped because an emptyDir is new for every pod.
+        - name: frontend
+          image: shortlist-frontend:v0
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "cp -r /fe/dist/. /srv/frontend/"]
+          volumeMounts:
+            - name: frontend-dist
+              mountPath: /srv/frontend
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      containers:
+        - name: caddy
+          image: caddy:2-alpine
+          # The only image here that comes from a registry. It is upstream,
+          # unmodified, and identical to the compose image.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              hostPort: 80
+            - name: https
+              containerPort: 443
+              hostPort: 443
+          env:
+            - name: DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: shortlist-config
+                  key: DOMAIN
+          volumeMounts:
+            - name: caddyfile
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+            # XDG_DATA_HOME in the official image. ACME account key and
+            # certificates live here, so it is the one thing that must
+            # persist across pod restarts.
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config
+              mountPath: /config
+            - name: frontend-dist
+              mountPath: /srv/frontend
+              readOnly: true
+          # TCP, not HTTP. Caddy routes by Host header, and a probe from the
+          # kubelet arrives with the pod IP as Host, matches no site block,
+          # and gets a 404 that would fail the probe forever. A TCP accept
+          # on 443 is the honest signal: the listener is up.
+          readinessProbe:
+            tcpSocket:
+              port: 443
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 443
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              # Binding 80 and 443 inside the container needs this one back.
+              add: ["NET_BIND_SERVICE"]
+      volumes:
+        - name: caddyfile
+          configMap:
+            name: shortlist-caddyfile
+        - name: caddy-data
+          persistentVolumeClaim:
+            claimName: caddy-data
+        - name: caddy-config
+          emptyDir: {}
+        - name: frontend-dist
+          emptyDir: {}

@@ -1,0 +1,100 @@
+# The stdlib API server. Image: `docker build --target web`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shortlist-web
+  namespace: shortlist
+  labels:
+    app.kubernetes.io/name: shortlist-web
+    app.kubernetes.io/part-of: shortlist
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shortlist-web
+  strategy:
+    # Recreate, not RollingUpdate. A surge pod needs a second 128Mi request
+    # while the old pod still holds its own, and this node has no room to
+    # spare. The cost is a few seconds of 502 during a deploy.
+    #
+    # Two web pods are otherwise safe: the store is Postgres and the rate
+    # limiter is already per-process. Memory is the only objection.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shortlist-web
+        app.kubernetes.io/part-of: shortlist
+    spec:
+      priorityClassName: shortlist-serving
+      # No pod here talks to the API server, so no pod needs a token
+      # mounted at /var/run/secrets/kubernetes.io.
+      automountServiceAccountToken: false
+      containers:
+        - name: web
+          # Tag is a git short sha in normal operation. `v0` is the
+          # bootstrap tag the first apply uses. Every deploy replaces it
+          # with `kubectl set image`. See README, "deploy".
+          image: shortlist-web:v0
+          # Images are imported into containerd with ctr. There is no
+          # registry to pull from, so Always would break every rollout.
+          imagePullPolicy: IfNotPresent
+          command: ["intake", "serve", "-p", "8642"]
+          ports:
+            - name: http
+              containerPort: 8642
+          envFrom:
+            - configMapRef:
+                name: shortlist-config
+          env:
+            # DATABASE_URL only. ANTHROPIC_API_KEY stays out of this pod:
+            # web never calls Claude, and compose splits it the same way.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shortlist-secrets
+                  key: DATABASE_URL
+            # Already ENV in the web stage of the Dockerfile. Repeated so
+            # the manifest reads correctly on its own.
+            - name: INTAKE_BIND
+              value: "0.0.0.0"
+          # Probes hit "/", not "/api/postings". "/" serves the legacy HTML
+          # page from a constant and never opens the store. Compose checks
+          # /api/postings, which is a full Supabase read; at a 10s period
+          # that is 8640 pointless queries a day. It also couples readiness
+          # to Supabase, and with one replica, pulling the pod out of the
+          # Service during a database blip only turns 500s into 502s.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            # Measured shape: python + psycopg, roughly 90-120Mi resident.
+            # No CPU limit anywhere in this directory. t3.small is a
+            # burstable instance with 2 vCPU; a CPU limit only adds
+            # throttling and cannot protect anything memory does not.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # runAsNonRoot is not set. The image has no non-root user and
+            # adding one is a Dockerfile change, which is out of scope for
+            # this directory. Note it as real, unfixed debt.

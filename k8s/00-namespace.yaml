@@ -1,0 +1,8 @@
+# One namespace holds everything. `kubectl -n shortlist get all` is then a
+# complete inventory, and a delete can never reach a system pod.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shortlist
+  labels:
+    app.kubernetes.io/part-of: shortlist
