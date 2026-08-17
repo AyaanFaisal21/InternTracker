@@ -13,17 +13,28 @@ import httpx
 
 from .schema import DegreeLevel
 
-# Full words match anywhere. The two-letter abbreviations are ambiguous
-# (CSS -ms-flex, "multiple sclerosis (MS)" in EEOC boilerplate), so they
-# are hyphen-guarded AND require degree context nearby. PhD needs word
+# Full words match anywhere but every token is word-bounded: an unbounded
+# "master" matched "McMaster University" in application-form school
+# dropdowns and tagged whole boards MS; unbounded "doctoral" matched
+# "postdoctoral". The two-letter abbreviations are ambiguous (CSS
+# -ms-flex, "multiple sclerosis (MS)" in EEOC boilerplate), so they are
+# hyphen-guarded AND require degree context nearby. PhD needs word
 # boundaries: bare ph\s?d matches "graph data". Covers PhD, Ph.D., Ph. D.,
-# PhDs, DPhil, D.Phil, Doctor of Philosophy.
+# PhDs, DPhil, D.Phil, Doctor of Philosophy; MS covers Master('s),
+# Masters, M.Sc, MSc, M.Eng; BS covers Bachelor('s), Bachelors, B.Sc,
+# BSc, undergrad(uate)(s).
 PATTERNS: dict[DegreeLevel, re.Pattern] = {
-    "BS": re.compile(r"bachelor|\bbsc\b|undergrad(?:uate)?", re.IGNORECASE),
-    "MS": re.compile(r"master|\bmsc\b|\bmeng\b", re.IGNORECASE),
+    "BS": re.compile(
+        r"\bbachelor(?:['’]?s)?\b|\bb\.?sc\b|\bundergrad(?:uate)?s?\b",
+        re.IGNORECASE,
+    ),
+    "MS": re.compile(
+        r"\bmaster(?:['’]?s)?\b|\bm\.?sc\b|\bm\.?eng\b",
+        re.IGNORECASE,
+    ),
     "PhD": re.compile(
-        r"\bph\.?\s?d\.?s?\b|\bd\.?\s?phil\b|doctor of philosophy"
-        r"|doctoral|doctorate",
+        r"\bph\.?\s?d\.?s?\b|\bd\.?\s?phil\b|\bdoctor of philosophy\b"
+        r"|\bdoctoral\b|\bdoctorates?\b",
         re.IGNORECASE,
     ),
 }
@@ -97,6 +108,64 @@ def classify(title: str, page_text: str) -> list[DegreeLevel]:
     m = BOILERPLATE_RE.search(page_text)
     body = page_text[: m.start()] if m else page_text
     return hits(body, contextual=True)
+
+
+# Pages whose text is application chrome, not a posting description. The
+# lever /apply form carries a school dropdown (McMaster University) and
+# EEOC prose; greenhouse embed and icims mobile shells carry navigation
+# and sibling-job tiles. Matched against the canonical (final) URL.
+CHROME_URL_RE = re.compile(
+    r"lever\.co/[^\s?#]+/apply(?:[/?#]|$)"
+    r"|greenhouse\.io/embed/job_app"
+    r"|icims\.com/[^\s]*[?&]mobile=true",
+    re.IGNORECASE,
+)
+
+# Error shells still return HTTP 200 and fill the page with related-job
+# links ("PhD Software Engineer Intern"), which are about other jobs.
+ERROR_PAGE_RE = re.compile(
+    r"job not found|page not found|position not found"
+    r"|no longer available|no longer accepting applications",
+    re.IGNORECASE,
+)
+
+
+def degree_page_usable(url: str | None, page_text: str) -> bool:
+    """Whether page text is plausibly a posting description that may feed
+    degree classification."""
+    if url and CHROME_URL_RE.search(url):
+        return False
+    if page_text and ERROR_PAGE_RE.search(page_text):
+        return False
+    return True
+
+
+def classify_posting(
+    title: str,
+    page_text: str = "",
+    qualifications: str | None = None,
+    url: str | None = None,
+) -> list[DegreeLevel]:
+    """classify() with provenance rules for a whole posting.
+
+    1. A degree named in the title stays decisive.
+    2. Chrome and error pages (degree_page_usable) never feed page-text
+       classification; the qualifications excerpt substitutes, else the
+       requirement is unstated.
+    3. A degree token inside the qualifications excerpt outranks one
+       found elsewhere in page text — requirements beat founder bios and
+       sibling-job tiles.
+    """
+    in_title = classify(title, "")
+    if in_title:
+        return in_title
+    if not degree_page_usable(url, page_text):
+        page_text = qualifications or ""
+    if qualifications:
+        from_quals = classify("", qualifications)
+        if from_quals:
+            return from_quals
+    return classify("", page_text)
 
 
 def workday_detail_text(url: str, client: httpx.Client) -> str:

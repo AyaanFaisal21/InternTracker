@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from ..dates import resolve_season
-from ..degrees import classify, extract_qualifications, strip_tags, workday_detail_text
+from ..dates import reconcile_season
+from ..degrees import classify_posting, extract_qualifications, strip_tags, workday_detail_text
 from ..normalize import resolve_canonical, strip_tracking
 from ..triage import audience_tags, refine_category
 from ..schema import DegreeLevel, Posting
@@ -80,11 +80,18 @@ def run_rules(p: Posting, client: httpx.Client) -> GateResult:
     # via lists and suggestions. No-op for every other URL.
     page_text = workday_detail_text(canonical or p.url, client) or page_text
     text = strip_tags(page_text)
-    p.category = refine_category(p.category, p.title, canonical or p.url)
+    final_url = canonical or p.url
+    p.category = refine_category(p.category, p.title, final_url)
     p.audience = sorted(set(p.audience) | set(audience_tags(p.title, text[:4000])))
+    quals = extract_qualifications(text)
+    # Season reconciliation mutates the posting (like category and
+    # audience above) because the pipeline keeps an already-set p.season:
+    # a bare list season ("Summer") must lose to a seasoned-year title,
+    # and a stale stored year must clear, on the posting itself.
+    p.season = reconcile_season(p.season, p.title, text[:4000])
     return GateResult(
         canonical_url=canonical,
-        degree_levels=classify(p.title, text),
-        qualifications=extract_qualifications(text),
-        season=resolve_season(p.title, text[:4000]),
+        degree_levels=classify_posting(p.title, text, quals, final_url),
+        qualifications=quals,
+        season=p.season,
     )

@@ -78,10 +78,29 @@ def season_is_flexible(text: str) -> bool:
     return bool(FLEXIBLE_SEASON_RE.search(text))
 
 
-def parse_season(title: str) -> str | None:
+def _default_current_year() -> int:
+    """Clock seam: tests monkeypatch this to pin the recruiting window."""
+    return datetime.now(timezone.utc).year
+
+
+def season_year_plausible(year: int, current_year: int | None = None) -> bool:
+    """Whether a year can belong to a live recruiting cycle. Page text is
+    full of copyright lines and founding years ("© 2000 Keysight"); only
+    [current_year - 1, current_year + 3] can be a real season."""
+    cy = current_year if current_year is not None else _default_current_year()
+    return cy - 1 <= year <= cy + 3
+
+
+def parse_season(title: str, current_year: int | None = None) -> str | None:
     """"Fall 2026" / "Summer 2027" from a title; bare year -> "2026";
     None when the title carries neither (Apple's year-round umbrellas)
-    or names several seasons (a flexible posting must not get one)."""
+    or names several seasons (a flexible posting must not get one).
+
+    A year outside the plausible recruiting window parses to None — a
+    "Summer 2020" or a bare "2006" is page chrome (copyright, founding
+    year), never a cycle, and must not override anything. current_year
+    pins the window for tests; the default reads the clock at call time.
+    """
     if season_is_flexible(title):
         return None
     m = SEASON_RE.search(title)
@@ -93,12 +112,18 @@ def parse_season(title: str) -> str | None:
         if not year:
             ym = YEAR_RE.search(title)
             year = ym.group(1) if ym else None
+        if year and not season_year_plausible(int(year), current_year):
+            return None
         return f"{term} {year}" if year else term
     ym = YEAR_RE.search(title)
+    if ym and not season_year_plausible(int(ym.group(1)), current_year):
+        return None
     return ym.group(1) if ym else None
 
 
-def resolve_season(title: str, page_text: str = "") -> str | None:
+def resolve_season(
+    title: str, page_text: str = "", current_year: int | None = None
+) -> str | None:
     """Season for the rule gate: title first, page text fallback.
 
     A flexible source stops the chain instead of falling through, so a
@@ -106,9 +131,45 @@ def resolve_season(title: str, page_text: str = "") -> str | None:
     A single-season title stays decisive over flexible page text."""
     if season_is_flexible(title):
         return None
-    season = parse_season(title)
+    season = parse_season(title, current_year)
     if season:
         return season
     if season_is_flexible(page_text):
         return None
-    return parse_season(page_text)
+    return parse_season(page_text, current_year)
+
+
+def reconcile_season(
+    stored: str | None,
+    title: str,
+    page_text: str = "",
+    current_year: int | None = None,
+) -> str | None:
+    """Final season given a source-stored value plus the resolve chain.
+
+    The gate and the offline reclassify pass share this. A stored season
+    normally stands (list sources state cycles pages omit), with three
+    exceptions:
+      - stored empty: fill from the chain (title, then page text).
+      - stored year implausible: a page-chrome artifact; recompute from
+        the chain, else None.
+      - stored bare ("Summer") while the title carries a year: the title
+        wins ("Summer 2026"); a bare-year title joins the stored word
+        ("Summer" + "2026" -> "Summer 2026").
+    Flexible-season semantics hold: a flexible title parses to None, so
+    it never overrides a stored bare season, and a stored None stays None.
+    """
+    resolved = resolve_season(title, page_text, current_year)
+    if not stored:
+        return resolved
+    m = YEAR_RE.search(stored)
+    if m:
+        if season_year_plausible(int(m.group(1)), current_year):
+            return stored
+        return resolved  # stale stored year: recompute or clear
+    title_season = parse_season(title, current_year)
+    if title_season and (ty := YEAR_RE.search(title_season)):
+        if title_season[0].isalpha():
+            return title_season
+        return f"{stored} {ty.group(1)}"
+    return stored

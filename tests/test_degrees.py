@@ -1,6 +1,24 @@
-from intake.degrees import classify, strip_tags, workday_detail_text
+from intake.degrees import classify, classify_posting, strip_tags, workday_detail_text
 
 from .harness import fixture_client
+
+# Lever /apply form chrome: school dropdown plus EEOC self-identification
+# prose, faithful to the Palantir pages that tagged 12 prod rows MS.
+PALANTIR_CHROME = (
+    "Submit your application. Resume. School Select a school "
+    "McMaster University McGill University Rutgers University Other. "
+    "Voluntary Self-Identification of Disability. Disabilities include "
+    "Parkinson's disease and multiple sclerosis (MS). "
+    "Equal Employment Opportunity is the law."
+)
+
+# Google careers error shell: the job is gone, the page fills with
+# related-job links that name other jobs' degree levels.
+GOOGLE_404 = (
+    "Job not found. The job you are looking for may have been removed. "
+    "Explore similar jobs: Software Engineering Intern, PhD, Summer 2027. "
+    "Student Researcher, MS, Winter 2026. Sign in. Privacy."
+)
 
 
 def test_title_degree_is_decisive():
@@ -100,3 +118,88 @@ def test_eeoc_boilerplate_not_ms():
 def test_abbrev_needs_degree_context():
     assert classify("SWE Intern", "our MS Teams channel is active") == []
     assert classify("SWE Intern", "pursuing a BS or MS degree in Computer Science") == ["BS", "MS"]
+
+
+def test_mcmaster_is_not_a_masters_degree():
+    # the unbounded "master" substring matched the school dropdown
+    assert classify("Software Engineer Intern", "McMaster University") == []
+    assert classify("SWE Intern", "webmaster and scrummaster tooling") == []
+    # the bounded forms still match
+    assert classify("SWE Intern", "pursuing a Master's degree in CS") == ["MS"]
+    assert classify("SWE Intern", "Masters students welcome") == ["MS"]
+
+
+def test_msc_phrasings_match():
+    # Rippling: "M.Sc. or Ph.D. program" missed MS entirely
+    assert classify("Research Intern", "enrolled in an M.Sc. or Ph.D. program") == ["MS", "PhD"]
+    assert classify("Research Intern", "MSc in Computer Science required") == ["MS"]
+
+
+def test_postdoctoral_is_not_doctoral():
+    assert classify("Research Fellow", "our postdoctoral community") == []
+
+
+def test_palantir_chrome_text_never_classifies():
+    # pattern level: bounded master + EEOC boilerplate cut
+    assert classify("Forward Deployed Software Engineer Intern", PALANTIR_CHROME) == []
+    # provenance level: a lever /apply URL disqualifies page text outright
+    assert classify_posting(
+        "Forward Deployed Software Engineer Intern",
+        PALANTIR_CHROME,
+        None,
+        "https://jobs.lever.co/palantir/d582cd84-14fd-4aa3-b413-15982d286bd9/apply",
+    ) == []
+
+
+def test_error_page_never_classifies():
+    # the raw text is poisoned by related-job links...
+    assert "PhD" in classify("Software Engineering Intern", GOOGLE_404)
+    # ...but an error page must not feed classification at all
+    assert classify_posting(
+        "Software Engineering Intern",
+        GOOGLE_404,
+        None,
+        "https://www.google.com/about/careers/applications/jobs/results/8556-x",
+    ) == []
+
+
+def test_chrome_urls_fall_back_to_qualifications():
+    quals = "Qualifications: pursuing a Bachelor's degree in Computer Science"
+    # greenhouse embed shell, no quals: unstated
+    assert classify_posting(
+        "Campus AI Researcher Intern",
+        "nav nav PhD sibling tile",
+        None,
+        "https://job-boards.greenhouse.io/embed/job_app?for=jumptrading&token=7976964",
+    ) == []
+    # icims mobile shell with a stored excerpt: the excerpt speaks
+    assert classify_posting(
+        "Agentic AI Research Intern",
+        "chrome chrome Doctor of Philosophy chrome",
+        quals,
+        "https://careers-cotiviti.icims.com/jobs/19480/job?mobile=true&needsRedirect=false",
+    ) == ["BS"]
+
+
+def test_title_stays_decisive_on_chrome_urls():
+    assert classify_posting(
+        "Software Undergrad Internships",
+        PALANTIR_CHROME,
+        None,
+        "https://jobs.lever.co/x/y/apply",
+    ) == ["BS"]
+
+
+def test_qualifications_outrank_page_text():
+    # Haize Labs fingerprint: founder bio in page prose ("MIT PhD with
+    # 21,000+ citations") while the requirements ask for a bachelor's
+    page = (
+        "Our founders: an MIT PhD with 21,000+ citations. "
+        "Qualifications: pursuing a Bachelor's degree in CS."
+    )
+    quals = "Qualifications: pursuing a Bachelor's degree in CS."
+    assert classify_posting("Software Engineer Intern", page, quals,
+                            "https://job-boards.greenhouse.io/haizelabs/jobs/1") == ["BS"]
+    # without a quals excerpt the page text still speaks (nothing better)
+    assert classify_posting("Software Engineer Intern", page, None,
+                            "https://job-boards.greenhouse.io/haizelabs/jobs/1") == ["BS", "PhD"]
