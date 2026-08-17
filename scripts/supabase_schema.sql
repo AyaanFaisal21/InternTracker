@@ -102,3 +102,31 @@ create table if not exists subscriptions (
 -- REST surface. Every subscription read and write flows through our API
 -- server, whose owning role bypasses RLS.
 alter table subscriptions enable row level security;
+
+-- Company resolver (src/intake/resolve.py). /api/suggest is public, so every
+-- resolution is an anonymous visitor spending Anthropic credit. These two
+-- tables are the spend defense: the cache turns a flood of repeated
+-- submissions into one paid call, and the per-day counter is the hard
+-- ceiling. key is norm_text(company), so casing and punctuation collapse.
+create table if not exists company_resolutions (
+    key         text primary key,
+    company     text not null,          -- as submitted, for display
+    resolution  jsonb not null,         -- resolve.CompanyResolution
+    resolved_at timestamptz not null default now()
+);
+
+-- Negative results are cached too, so a name that resolves to nothing is not
+-- cheaper to re-trigger than one that resolves.
+create index if not exists company_resolutions_fresh_idx
+    on company_resolutions (resolved_at desc);
+
+create table if not exists resolver_spend (
+    day   date primary key,             -- UTC day the calls were made
+    calls integer not null default 0
+);
+
+-- RLS on with no policies, same reasoning as subscriptions: resolver output
+-- and spend counts are internal. Reads and writes flow through the pipeline
+-- and the API server, whose owning role bypasses RLS.
+alter table company_resolutions enable row level security;
+alter table resolver_spend      enable row level security;

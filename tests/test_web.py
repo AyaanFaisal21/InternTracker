@@ -1,11 +1,13 @@
 """Web server tests: real HTTP server on an ephemeral port, real store.
-Covers the dashboard smoke path and the subscription endpoints.
+Covers the dashboard smoke path, the subscription endpoints, and the
+suggestion endpoint's spend defenses (validation and duplicate collapsing).
 
 Skips when the environment forbids loopback connections (some sandboxes do).
 """
 
 import socket
 import threading
+import time
 from http.server import ThreadingHTTPServer
 
 import httpx
@@ -26,7 +28,23 @@ def loopback_blocked() -> bool:
 
 from intake.schema import RawDetection, Source
 from intake.store import Store
-from intake.web import make_handler
+from intake.web import SUGGEST_LIMIT, make_handler
+
+
+def serve(db):
+    """Start the handler on an ephemeral port and wait for the listener."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    for _ in range(20):
+        try:
+            httpx.get(f"{base}/")
+            break
+        except httpx.ConnectError:
+            time.sleep(0.05)
+    else:
+        raise AssertionError("server never came up")
+    return server, base
 
 
 @pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
@@ -48,21 +66,9 @@ def test_dashboard_serves_html_and_json(tmp_path):
         )
     )
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db))
-    port = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    server, base = serve(db)
     try:
-        base = f"http://127.0.0.1:{port}"
-        html = None
-        for _ in range(20):  # wait for the listener thread
-            try:
-                html = httpx.get(f"{base}/")
-                break
-            except httpx.ConnectError:
-                import time
-                time.sleep(0.05)
-        assert html is not None, "server never came up"
+        html = httpx.get(f"{base}/")
         assert html.status_code == 200 and "Shortlist" in html.text
 
         board = httpx.get(f"{base}/listings")
@@ -94,21 +100,8 @@ def test_subscribe_and_unsubscribe_endpoints(tmp_path):
     db = tmp_path / "s.db"
     Store(db)  # create the schema before the first request
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(db))
-    port = server.server_address[1]
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    server, base = serve(db)
     try:
-        base = f"http://127.0.0.1:{port}"
-        up = None
-        for _ in range(20):  # wait for the listener thread
-            try:
-                up = httpx.get(f"{base}/")
-                break
-            except httpx.ConnectError:
-                import time
-                time.sleep(0.05)
-        assert up is not None, "server never came up"
-
         # Four invalid shapes, each 400. SUBSCRIBE_LIMIT allows 5/min, so
         # these plus the one valid request below spend the window exactly.
         bad = [
@@ -146,4 +139,64 @@ def test_subscribe_and_unsubscribe_endpoints(tmp_path):
         miss = httpx.post(f"{base}/api/unsubscribe", json={"token": "0" * 32})
         assert miss.status_code == 200 and miss.json() == {"ok": False}
     finally:
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_suggest_rejects_implausible_company_values(tmp_path):
+    db = tmp_path / "v.db"
+    Store(db)
+    SUGGEST_LIMIT.reset()  # the limiter is process-wide state shared by tests
+    server, base = serve(db)
+    try:
+        # A company name reaches a paid LLM call, so garbage is refused at the
+        # door rather than queued. 5 requests: exactly the per-minute window.
+        bad = [
+            {"kind": "company", "value": "x" * 81},
+            {"kind": "company", "value": "12345"},
+            {"kind": "company", "value": "https://linkedin.com/jobs"},
+            {"kind": "company", "value": "   "},
+            {"kind": "sms", "value": "Goldman Sachs"},
+        ]
+        for payload in bad:
+            assert httpx.post(f"{base}/api/suggest", json=payload).status_code == 400
+        assert Store(db).recent_suggestions() == []
+
+        SUGGEST_LIMIT.reset()
+        ok = httpx.post(f"{base}/api/suggest", json={
+            "kind": "company", "value": "Goldman\r\n Sachs", "keywords": "k" * 300,
+        })
+        assert ok.status_code == 200 and ok.json()["id"] >= 1
+        row = Store(db).recent_suggestions()[0]
+        assert "\r" not in row["value"] and len(row["keywords"]) == 120
+    finally:
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_suggest_collapses_duplicate_submissions(tmp_path):
+    db = tmp_path / "d.db"
+    Store(db)
+    SUGGEST_LIMIT.reset()
+    server, base = serve(db)
+    try:
+        first = httpx.post(f"{base}/api/suggest",
+                           json={"kind": "company", "value": "Goldman Sachs"})
+        assert first.status_code == 200 and "duplicate" not in first.json()
+
+        # Same company, different spelling: one unit of work, same success
+        # shape, so a flood of resubmissions cannot multiply resolver spend.
+        for value in ("goldman sachs", "  GOLDMAN SACHS. "):
+            again = httpx.post(f"{base}/api/suggest",
+                               json={"kind": "company", "value": value})
+            assert again.status_code == 200
+            assert again.json() == {"id": first.json()["id"], "duplicate": True}
+
+        dupe_url = httpx.post(f"{base}/api/suggest", json={
+            "kind": "url", "value": "https://higher.gs.com/roles/1",
+        })
+        assert dupe_url.status_code == 200 and "duplicate" not in dupe_url.json()
+        assert len(Store(db).recent_suggestions()) == 2
+    finally:
+        SUGGEST_LIMIT.reset()
         server.shutdown()

@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .locations import countries_of, is_remote
+from .resolve import COMPANY_MAX, clean_company, valid_company
 from .roles import classify_role
 from .store import open_store
 
@@ -688,11 +689,22 @@ class RateLimiter:
             self._hits[key] = hits
             return True
 
+    def reset(self) -> None:
+        """Drop every window. For tests, which share this process-wide state."""
+        with self._lock:
+            self._hits.clear()
+
 
 SUGGEST_LIMIT = RateLimiter(limit=5, window_s=60.0)
 VISIT_LIMIT = RateLimiter(limit=30, window_s=60.0)
 SUBSCRIBE_LIMIT = RateLimiter(limit=5, window_s=60.0)
 UNSUBSCRIBE_LIMIT = RateLimiter(limit=30, window_s=60.0)
+
+# A rate limiter caps one client; it does not stop a rotating one. Collapsing
+# repeat submissions is what keeps the resolver's cost proportional to
+# distinct companies rather than to request volume, so the window matches the
+# resolution cache TTL: inside it, a repeat is pure duplicate work.
+SUGGEST_DEDUPE_DAYS = 30
 
 
 def make_handler(db_path: Path):
@@ -736,11 +748,29 @@ def make_handler(db_path: Path):
                 if kind not in ("url", "company") or not value or len(value) > 500:
                     self._send(400, b"bad request", "text/plain")
                     return
+                if kind == "company":
+                    # A company name reaches an LLM prompt holding a web
+                    # search tool and costs money to resolve, so it is
+                    # validated here rather than queued as-is: 80 chars max
+                    # (refused, not truncated, so the submitter knows),
+                    # control characters stripped, and nothing that cannot
+                    # plausibly be a company (URL-shaped, digits, punctuation).
+                    if len(value) > COMPANY_MAX or not valid_company(value):
+                        self._send(400, b"bad request", "text/plain")
+                        return
+                    value = clean_company(value)
                 store = open_store(db_path)
+                dup = store.duplicate_suggestion(kind, value, SUGGEST_DEDUPE_DAYS)
+                if dup is not None:
+                    # Same success shape: the submitter sees their suggestion
+                    # accepted, and no second unit of work exists.
+                    seen = json.dumps({"id": dup["id"], "duplicate": True}).encode()
+                    self._send(200, seen, "application/json")
+                    return
                 sid = store.add_suggestion(
                     kind, value,
-                    company=body.get("company") or None,
-                    keywords=body.get("keywords") or None,
+                    company=(str(body.get("company") or "").strip()[:COMPANY_MAX] or None),
+                    keywords=(str(body.get("keywords") or "").strip()[:120] or None),
                 )
                 self._send(200, json.dumps({"id": sid}).encode(), "application/json")
             elif self.path == "/api/visit":

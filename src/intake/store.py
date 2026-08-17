@@ -11,9 +11,16 @@ import os
 import sqlite3
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
-from .schema import Posting, RawDetection, Source, Status
+from .schema import Posting, RawDetection, Source, Status, suggestion_key
+
+
+def utc_day() -> str:
+    """Today in UTC. The resolver budget resets on this boundary, so it must
+    not depend on the host's timezone."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 _pg_store = None
 _pg_lock = threading.Lock()
@@ -75,6 +82,25 @@ CREATE TABLE IF NOT EXISTS visits (
     page TEXT NOT NULL,
     ua   TEXT,
     at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Resolver output, keyed by the normalized company name (schema.norm_text).
+-- A cache hit means no API call, so this table is the resolver's main spend
+-- defense. Negative results are cached too: a name that resolves to nothing
+-- must not be cheaper to re-trigger than one that resolves.
+CREATE TABLE IF NOT EXISTS company_resolutions (
+    key         TEXT PRIMARY KEY,   -- norm_text(company)
+    company     TEXT NOT NULL,      -- as submitted, for display
+    resolution  TEXT NOT NULL,      -- JSON, resolve.CompanyResolution
+    resolved_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Durable per-UTC-day resolver call count. Durable and not in-process
+-- because the poller restarts, and an in-memory counter would hand a fresh
+-- budget to anyone who can make it crash.
+CREATE TABLE IF NOT EXISTS resolver_spend (
+    day   TEXT PRIMARY KEY,         -- YYYY-MM-DD, UTC
+    calls INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -185,6 +211,70 @@ class Store:
             (status, result[:500], sid),
         )
         self.conn.commit()
+
+    def defer_suggestion(self, sid: int, result: str) -> None:
+        """Write the note, keep the suggestion queued. Used when a spend cap
+        stops work from happening yet: the visitor sees why, and the next
+        cycle picks the row up again because status stays 'new'."""
+        self.conn.execute(
+            "UPDATE suggestions SET result = ? WHERE id = ?", (result[:500], sid)
+        )
+        self.conn.commit()
+
+    def duplicate_suggestion(self, kind: str, value: str, within_days: int = 30) -> dict | None:
+        """An open or recently resolved suggestion with the same identity.
+
+        A repeat submission must never create a second unit of work: the
+        submit endpoint is public and a company resolution costs money. The
+        window scan is bounded and normalization happens in Python, so the
+        key rule lives in one place (schema.suggestion_key).
+        """
+        rows = self.conn.execute(
+            """SELECT * FROM suggestions
+                WHERE kind = ?
+                  AND (status = 'new' OR created_at >= datetime('now', ?))
+                ORDER BY id DESC LIMIT 200""",
+            (kind, f"-{int(within_days)} days"),
+        ).fetchall()
+        key = suggestion_key(kind, value)
+        return next(
+            (dict(r) for r in rows if suggestion_key(kind, r["value"]) == key), None
+        )
+
+    def cached_resolution(self, key: str, max_age_days: int) -> dict | None:
+        row = self.conn.execute(
+            "SELECT resolution FROM company_resolutions "
+            "WHERE key = ? AND resolved_at >= datetime('now', ?)",
+            (key, f"-{int(max_age_days)} days"),
+        ).fetchone()
+        return json.loads(row["resolution"]) if row else None
+
+    def cache_resolution(self, key: str, company: str, resolution: dict) -> None:
+        self.conn.execute(
+            """INSERT INTO company_resolutions (key, company, resolution, resolved_at)
+               VALUES (?,?,?,datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET
+                 company=excluded.company,
+                 resolution=excluded.resolution,
+                 resolved_at=excluded.resolved_at""",
+            (key, company, json.dumps(resolution)),
+        )
+        self.conn.commit()
+
+    def resolver_calls_today(self) -> int:
+        row = self.conn.execute(
+            "SELECT calls FROM resolver_spend WHERE day = ?", (utc_day(),)
+        ).fetchone()
+        return row["calls"] if row else 0
+
+    def count_resolver_call(self) -> int:
+        self.conn.execute(
+            "INSERT INTO resolver_spend (day, calls) VALUES (?, 1) "
+            "ON CONFLICT(day) DO UPDATE SET calls = calls + 1",
+            (utc_day(),),
+        )
+        self.conn.commit()
+        return self.resolver_calls_today()
 
     def record_visit(self, page: str, ua: str | None) -> None:
         self.conn.execute("INSERT INTO visits (page, ua) VALUES (?, ?)", (page, ua))

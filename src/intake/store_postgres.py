@@ -14,8 +14,15 @@ from __future__ import annotations
 
 import threading
 import uuid
+from datetime import date, datetime, timezone
 
-from .schema import Posting, RawDetection, Source, Status, Verdict
+from .schema import Posting, RawDetection, Source, Status, Verdict, suggestion_key
+
+
+def utc_day() -> date:
+    """Today in UTC, as a date for the `day` column. Mirrors store.utc_day,
+    which returns the text SQLite stores."""
+    return datetime.now(timezone.utc).date()
 
 try:
     import psycopg
@@ -231,6 +238,34 @@ class PostgresStore:
             )
         )
 
+    def defer_suggestion(self, sid: int, result: str) -> None:
+        """Note only, status untouched: the row stays 'new' so the next cycle
+        retries it. See the SQLite store for why."""
+        self._run(
+            lambda c: c.execute(
+                "UPDATE suggestions SET result = %s WHERE id = %s", (result[:500], sid)
+            )
+        )
+
+    def duplicate_suggestion(self, kind: str, value: str, within_days: int = 30) -> dict | None:
+        """Same contract as the SQLite store: an open or recently resolved
+        suggestion with the same normalized identity, or None."""
+        rows = self._run(
+            lambda c: c.execute(
+                """SELECT * FROM suggestions
+                    WHERE kind = %s
+                      AND (status = 'new'
+                           OR created_at >= now() - make_interval(days => %s))
+                    ORDER BY id DESC LIMIT 200""",
+                (kind, int(within_days)),
+            ).fetchall()
+        )
+        key = suggestion_key(kind, value)
+        return next(
+            (self._sugg_dict(r) for r in rows if suggestion_key(kind, r["value"]) == key),
+            None,
+        )
+
     def recent_suggestions(self, limit: int = 25) -> list[dict]:
         rows = self._run(
             lambda c: c.execute(
@@ -238,6 +273,54 @@ class PostgresStore:
             ).fetchall()
         )
         return [self._sugg_dict(r) for r in rows]
+
+    # -- resolver cache and budget ----------------------------------------
+
+    def cached_resolution(self, key: str, max_age_days: int) -> dict | None:
+        row = self._run(
+            lambda c: c.execute(
+                "SELECT resolution FROM company_resolutions "
+                "WHERE key = %s AND resolved_at >= now() - make_interval(days => %s)",
+                (key, int(max_age_days)),
+            ).fetchone()
+        )
+        # jsonb decodes to a dict on the way out, the mirror of the SQLite
+        # json.loads path.
+        return row["resolution"] if row else None
+
+    def cache_resolution(self, key: str, company: str, resolution: dict) -> None:
+        self._run(
+            lambda c: c.execute(
+                """INSERT INTO company_resolutions (key, company, resolution, resolved_at)
+                   VALUES (%s,%s,%s,now())
+                   ON CONFLICT(key) DO UPDATE SET
+                     company=excluded.company,
+                     resolution=excluded.resolution,
+                     resolved_at=excluded.resolved_at""",
+                (key, company, Jsonb(resolution)),
+            )
+        )
+
+    def resolver_calls_today(self) -> int:
+        row = self._run(
+            lambda c: c.execute(
+                "SELECT calls FROM resolver_spend WHERE day = %s", (utc_day(),)
+            ).fetchone()
+        )
+        return row["calls"] if row else 0
+
+    def count_resolver_call(self) -> int:
+        # The only non-idempotent write in this store, so _run's reconnect
+        # retry can over-count by one. That direction is the safe one: an
+        # over-count stops spending early, an under-count would not.
+        return self._run(
+            lambda c: c.execute(
+                "INSERT INTO resolver_spend (day, calls) VALUES (%s, 1) "
+                "ON CONFLICT(day) DO UPDATE SET calls = resolver_spend.calls + 1 "
+                "RETURNING calls",
+                (utc_day(),),
+            ).fetchone()["calls"]
+        )
 
     @staticmethod
     def _sugg_dict(row: dict) -> dict:
