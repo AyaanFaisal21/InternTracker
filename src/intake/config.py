@@ -19,6 +19,22 @@ DEFAULT_DB = Path(
 )
 
 
+def _env_int(name: str, default: int) -> int:
+    """Env override for a spend knob. A malformed value falls back to the
+    default rather than failing open."""
+    try:
+        return max(0, int(os.environ[name]))
+    except (KeyError, ValueError):
+        return default
+
+
+# Resolver spend ceilings. Env-overridable because they are the numbers an
+# operator reaches for first when a bill surprises them.
+DEFAULT_RESOLVER_BUDGET = _env_int("INTAKE_RESOLVER_BUDGET", 25)      # calls per UTC day
+DEFAULT_RESOLVER_PER_CYCLE = _env_int("INTAKE_RESOLVER_PER_CYCLE", 5)  # calls per poll cycle
+DEFAULT_RESOLVER_CACHE_DAYS = _env_int("INTAKE_RESOLVER_CACHE_DAYS", 30)
+
+
 class WorkdayBoard(BaseModel):
     company: str  # display name, e.g. "NVIDIA"
     host: str     # e.g. "nvidia.wd5.myworkdayjobs.com"
@@ -46,6 +62,17 @@ class Settings(BaseModel):
     # posting is applyable regardless of age; lists also backfill old dates)
     page_fetch_timeout: float = 15.0
     max_page_chars: int = 20_000  # cap on posting-page text sent to the verifier
+
+    # Company resolver (resolve.py). Triggered by a public endpoint, so every
+    # knob here is a spend control as much as a tuning control.
+    resolver_model: str = "claude-opus-5"
+    resolver_effort: str = "medium"        # output_config.effort: low | medium
+    resolver_max_tokens: int = 8192        # caps thinking + response per call
+    resolver_max_searches: int = 5         # web_search max_uses per resolution
+    resolver_max_continuations: int = 5    # pause_turn resumes before giving up
+    resolver_cache_days: int = DEFAULT_RESOLVER_CACHE_DAYS
+    resolver_daily_budget: int = DEFAULT_RESOLVER_BUDGET
+    resolver_per_cycle: int = DEFAULT_RESOLVER_PER_CYCLE
 
 
 def load_settings(watchlist_path: Path | None = None) -> Settings:

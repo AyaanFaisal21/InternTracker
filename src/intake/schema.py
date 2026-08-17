@@ -43,6 +43,18 @@ def norm_text(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def suggestion_key(kind: str, value: str) -> str:
+    """Identity of a submitted suggestion, for collapsing repeats.
+
+    Company names collapse on norm_text, so "Goldman Sachs", "goldman sachs"
+    and "Goldman Sachs." are one unit of work. URLs keep their punctuation
+    (stripping it would merge distinct postings) and only lose case and
+    surrounding space.
+    """
+    v = (value or "").strip()
+    return v.lower() if kind == "url" else norm_text(v)
+
+
 class RawDetection(BaseModel):
     source: Source
     company: str
