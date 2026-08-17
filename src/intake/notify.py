@@ -1,12 +1,12 @@
 """Notification fan-out for newly published postings.
 
 Visitors subscribe to new-posting alerts, optionally narrowed to named
-companies. Everything here is channel-agnostic and ends at the Sender
-seam; LogSender is the placeholder default, the same pattern as
-pipeline.py's default_publisher, and senders.EmailSender is the live
-channel behind it.
+companies, degree levels and countries. Everything here is
+channel-agnostic and ends at the Sender seam; LogSender is the placeholder
+default, the same pattern as pipeline.py's default_publisher, and
+senders.EmailSender is the live channel behind it.
 
-Three rules shape this module.
+Four rules shape this module.
 
 Matching is exact after normalization, never partial. Tolerance comes from
 folding the spellings of one company together (corporate suffixes,
@@ -16,6 +16,15 @@ which is the one failure a notification system cannot recover from. The
 cost is that a half-remembered name matches nothing, and /api/companies is
 the answer to that: the subscriber picks from names that provably have
 live postings.
+
+Absence of evidence never hides a posting. A posting that states no degree
+level, one whose location labels name no country, and one marked remote
+all pass a filter on that dimension instead of failing it. Our
+classification relaxes a label it cannot support rather than guessing, so
+the unstated case is common; reading it as "matches nothing" would mail a
+subscriber a fraction of what they asked for and look like a dead feed.
+The board already narrows on exactly these rules, so the alert and the
+page a subscriber checks agree.
 
 Sends are batched per cycle, not per posting. Twenty detections in one
 poll cycle is one message per subscriber, and a durable per-subscriber
@@ -31,6 +40,7 @@ from __future__ import annotations
 import logging
 from typing import Protocol
 
+from .locations import countries_of, is_remote
 from .schema import Posting, norm_text
 
 log = logging.getLogger("intake")
@@ -67,21 +77,35 @@ def company_key(name: str) -> str:
     return COMPANY_ALIASES.get(key, key)
 
 
-def build_filters(companies: list[str]) -> dict:
-    """The stored filter shape: what the subscriber typed, plus the keys
+def build_filters(
+    companies: list[str],
+    degrees: list[str] | None = None,
+    countries: list[str] | None = None,
+) -> dict:
+    """The stored filter shape: what the subscriber picked, plus the keys
     the fan-out compares on.
 
-    Both are kept because they answer different questions. The keys decide
-    delivery; the verbatim names let the UI show someone their own wording
-    back instead of our normalization of it. An empty list means every
-    company, which is the '{}' filter the store already understands.
+    Companies carry two entries because they answer different questions.
+    The keys decide delivery; the verbatim names let the UI show someone
+    their own wording back instead of our normalization of it. Degrees and
+    countries need no such pair: both are picked from fixed lists, so what
+    the subscriber chose is already what the fan-out compares.
+
+    Only dimensions that narrow are written. An empty one is left out
+    entirely, so a subscription to everything is still the '{}' filter the
+    store has always understood, and every key present means a constraint.
     """
-    if not companies:
-        return {}
-    return {
-        "companies": list(companies),
-        "company_keys": sorted({company_key(c) for c in companies if company_key(c)}),
-    }
+    filters: dict = {}
+    if companies:
+        filters["companies"] = list(companies)
+        filters["company_keys"] = sorted(
+            {company_key(c) for c in companies if company_key(c)}
+        )
+    if degrees:
+        filters["degrees"] = list(degrees)
+    if countries:
+        filters["countries"] = list(countries)
+    return filters
 
 
 def _wanted_keys(filters: dict) -> set[str]:
@@ -92,10 +116,52 @@ def _wanted_keys(filters: dict) -> set[str]:
     return {k for k in (company_key(c) for c in filters.get("companies") or []) if k}
 
 
+def _degrees_of(posting: Posting) -> list[str]:
+    """Degree levels the posting is open to. The verifier read the page, so
+    its answer wins over the rule gate's title heuristic whenever it states
+    one; this is the precedence the board renders and filters on."""
+    if posting.verdict and posting.verdict.degree_levels:
+        return list(posting.verdict.degree_levels)
+    return list(posting.degree_levels)
+
+
 def _matches(filters: dict, posting: Posting) -> bool:
-    """Empty or missing companies list means every company matches."""
+    """One posting against one subscription: AND across dimensions, OR
+    within each. A missing or empty dimension constrains nothing, so a
+    subscription written before that dimension existed behaves exactly as
+    it did, and '{}' still matches everything.
+
+    Three absences match rather than hide, and each is deliberate:
+
+      - a posting stating no degree level matches every degree filter,
+        because the classifier relaxes a label it cannot support to nothing
+        instead of guessing at one;
+      - a posting whose labels name no country matches every country
+        filter, because an unparsed location is not evidence of a place;
+      - a remote posting matches every country filter, because it is
+        workable from any of them.
+
+    The board narrows the same way, so a subscriber who follows an alert
+    onto the page finds the posting still there.
+    """
     wanted = _wanted_keys(filters)
-    return not wanted or company_key(posting.company) in wanted
+    if wanted and company_key(posting.company) not in wanted:
+        return False
+    degrees = filters.get("degrees") or []
+    if degrees:
+        stated = _degrees_of(posting)
+        if stated and not any(d in stated for d in degrees):
+            return False
+    countries = filters.get("countries") or []
+    if countries:
+        derived = countries_of(posting.locations)
+        if (
+            derived
+            and not is_remote(posting.locations)
+            and not any(c in derived for c in countries)
+        ):
+            return False
+    return True
 
 
 def _deliverable(sub: dict) -> bool:

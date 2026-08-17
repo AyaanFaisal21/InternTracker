@@ -1,9 +1,10 @@
 """Web server tests: real HTTP server on an ephemeral port, real store.
 Covers the dashboard smoke path, the company list the subscribe form
 autocompletes against, the subscription endpoints including the double
-opt-in, the consent evidence they record, the email-clickable links, the
-visit beacon's privacy contract, and the suggestion endpoint's spend
-defenses (validation and duplicate collapsing).
+opt-in and the degree and country filters they accept, the consent evidence
+they record, the email-clickable links, the visit beacon's privacy
+contract, and the suggestion endpoint's spend defenses (validation and
+duplicate collapsing).
 
 No mail can leave: every test that reaches the subscribe endpoint replaces
 web.email_sender with a recorder, so the result does not depend on whether
@@ -282,6 +283,103 @@ def test_subscribe_refuses_addresses_that_cannot_receive_mail(tmp_path):
             r = httpx.post(f"{base}/api/subscribe",
                            json={"channel": "email", "target": target})
             assert r.status_code == 400, target
+        assert Store(db).active_subscriptions() == []
+    finally:
+        SUBSCRIBE_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_subscribe_stores_degree_and_country_filters(tmp_path):
+    db = tmp_path / "df.db"
+    Store(db)
+    SUBSCRIBE_LIMIT.reset()
+    CONFIRM_LIMIT.reset()
+    reset_companies_cache()
+    mailbox = Mailbox()
+
+    # (what the form sent, what the row should hold). Both dimensions are
+    # optional, and every combination of set and unset has to land as the
+    # filter it describes rather than as a filter that matches nothing.
+    cases = [
+        ({}, {}),
+        # Explicitly empty is the same "no constraint" as absent, so a form
+        # that always sends the keys cannot subscribe someone to silence.
+        ({"companies": [], "degrees": [], "countries": []}, {}),
+        ({"degrees": ["BS"]}, {"degrees": ["BS"]}),
+        ({"countries": ["United States", "Canada"]},
+         {"countries": ["United States", "Canada"]}),
+        ({"companies": ["NVIDIA"], "degrees": ["PhD", "MS"],
+          "countries": ["Canada"]},
+         {"companies": ["NVIDIA"], "company_keys": ["nvidia"],
+          "degrees": ["MS", "PhD"], "countries": ["Canada"]}),
+        # Control characters become spaces, runs collapse and repeats fold,
+        # so what is stored compares equal to the names countries_of derives.
+        ({"countries": ["  United\tStates ", "United States"]},
+         {"countries": ["United States"]}),
+    ]
+
+    server, base = serve(db)
+    try:
+        with patch("intake.web.email_sender", return_value=mailbox):
+            for i, (sent, _) in enumerate(cases):
+                r = httpx.post(
+                    f"{base}/api/subscribe",
+                    json={"channel": "email", "target": f"s{i}@x.edu",
+                          "filters": sent},
+                    # One client per request: the per-IP window allows five.
+                    headers={"X-Forwarded-For": f"198.51.100.{i}"},
+                )
+                assert r.status_code == 200, sent
+                # The response still answers the company question and only
+                # that one: degrees and countries are picked from fixed
+                # lists and cannot be a name we do not carry.
+                assert set(r.json()["matches"]) == set(sent.get("companies") or [])
+        assert [s["filters"] for s in Store(db).active_subscriptions()] == [
+            expected for _, expected in cases]
+    finally:
+        SUBSCRIBE_LIMIT.reset()
+        CONFIRM_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_subscribe_refuses_filters_it_could_never_honor(tmp_path):
+    db = tmp_path / "bf.db"
+    Store(db)
+    SUBSCRIBE_LIMIT.reset()
+
+    # Every one of these would store a filter that matches nothing, which
+    # reaches the subscriber as a feed that never fires rather than as an
+    # error they could fix. Refused at the door instead.
+    bad = [
+        {"degrees": ["BA"]},                      # not a level postings carry
+        {"degrees": ["bs"]},                      # nor is a different casing
+        {"degrees": ["BS", "MS", "PhD", "BS"]},   # longer than the whole set
+        {"degrees": "BS"},                        # a bare string is not a list
+        {"degrees": [1]},
+        # Unhashable, so the type check has to come before the membership
+        # test or this is a 500 instead of a 400.
+        {"degrees": [{"level": "BS"}]},
+        {"countries": ["x" * 61]},
+        {"countries": [f"C{i}" for i in range(11)]},
+        {"countries": [""]},
+        {"countries": ["   "]},                   # empty once padding goes
+        {"countries": [""]},           # empty once controls go
+        {"countries": [None]},
+        {"countries": "United States"},
+        "not-a-dict",
+    ]
+
+    server, base = serve(db)
+    try:
+        for i, filters in enumerate(bad):
+            r = httpx.post(
+                f"{base}/api/subscribe",
+                json={"channel": "email", "target": "a@b.edu", "filters": filters},
+                headers={"X-Forwarded-For": f"203.0.113.{i}"},
+            )
+            assert r.status_code == 400, filters
         assert Store(db).active_subscriptions() == []
     finally:
         SUBSCRIBE_LIMIT.reset()

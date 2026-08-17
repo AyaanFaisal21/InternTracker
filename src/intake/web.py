@@ -13,7 +13,9 @@ Routes:
   GET  /api/unsubscribe  one-click unsubscribe (link from the email)
   POST /api/suggest      queue a suggestion {kind, value, company?, keywords?}
   POST /api/visit        record a page open {page}
-  POST /api/subscribe    create a notification subscription {channel, target, filters?}
+  POST /api/subscribe    create a notification subscription
+                         {channel, target, filters?}, filters narrowing on
+                         companies, degrees and countries
   POST /api/unsubscribe  deactivate a subscription {token}, or ?token= one-click
 
 The two GET links are clicked out of an email, so they answer with a small
@@ -35,13 +37,14 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import get_args
 from urllib.parse import parse_qs, urlsplit
 
 from .locations import countries_of, is_remote
 from .notify import build_filters, company_key
-from .resolve import COMPANY_MAX, clean_company, valid_company
+from .resolve import COMPANY_MAX, CTRL_RE, clean_company, valid_company
 from .roles import classify_role
-from .schema import Status
+from .schema import DegreeLevel, Status
 from .senders import clean_email, email_sender, recipient_key, valid_email
 from .store import open_store
 
@@ -711,7 +714,7 @@ def notice_page(heading: str, body: str) -> bytes:
 
 VERIFIED_PAGE = notice_page(
     "Alerts confirmed",
-    "This address is confirmed. New postings that match your companies "
+    "This address is confirmed. New postings that match your filters "
     "arrive in one message per poll cycle, and every message carries an "
     "unsubscribe link.",
 )
@@ -773,6 +776,58 @@ def reset_companies_cache() -> None:
     global _companies_cache
     with _companies_lock:
         _companies_cache = None
+
+
+# Degree labels a subscription may name. Read off the posting schema rather
+# than restated, so the endpoint cannot start accepting a level the postings
+# it filters do not have.
+DEGREE_CHOICES = frozenset(get_args(DegreeLevel))
+# Countries per subscription, and the length of one name. Ten regions is
+# already wider than a job search, and 60 characters clears the longest real
+# country name with room to spare. Both refuse rather than truncate: a
+# silently shortened name would match nothing and look like a dead feed.
+COUNTRY_LIMIT = 10
+COUNTRY_MAX = 60
+
+_WS_RE = re.compile(r"\s+")
+
+
+def clean_country(value: str) -> str:
+    """Untrusted text off the subscribe form, flattened to one line. The
+    same treatment clean_company gives a suggested name: control characters
+    become spaces, runs collapse, ends are trimmed. Collapsing matters
+    because the result is compared for equality against the country names
+    locations.countries_of derives."""
+    return _WS_RE.sub(" ", CTRL_RE.sub(" ", value or "")).strip()
+
+
+def valid_degrees(raw) -> list[str] | None:
+    """The degree levels a subscribe request asked for, deduplicated, or
+    None when the request is malformed. An empty list is valid and means no
+    constraint, so absence and emptiness read the same."""
+    if not isinstance(raw, list) or len(raw) > len(DEGREE_CHOICES):
+        return None
+    if any(not isinstance(d, str) or d not in DEGREE_CHOICES for d in raw):
+        return None
+    return sorted(set(raw))
+
+
+def valid_countries(raw) -> list[str] | None:
+    """The countries a subscribe request asked for, cleaned and
+    deduplicated, or None when the request is malformed. Empty is valid and
+    means no constraint, matching valid_degrees."""
+    if not isinstance(raw, list) or len(raw) > COUNTRY_LIMIT:
+        return None
+    out: list[str] = []
+    for c in raw:
+        if not isinstance(c, str):
+            return None
+        name = clean_country(c)
+        if not name or len(name) > COUNTRY_MAX:
+            return None
+        if name not in out:
+            out.append(name)
+    return out
 
 
 def company_matches(store, companies: list[str]) -> dict[str, int]:
@@ -1006,10 +1061,20 @@ def make_handler(db_path: Path):
                 channel = body.get("channel")
                 target = str(body.get("target", "")).strip()
                 filters = body.get("filters") or {}
-                companies = (filters.get("companies") or []) if isinstance(filters, dict) else None
+                if not isinstance(filters, dict):
+                    self._send(400, b"bad request", "text/plain")
+                    return
+                companies = filters.get("companies") or []
+                # None from either means the request named something this
+                # endpoint does not offer. Each dimension is optional and an
+                # empty one narrows nothing, so a request that sets neither
+                # is the subscribe-to-everything case, not a malformed one.
+                degrees = valid_degrees(filters.get("degrees") or [])
+                countries = valid_countries(filters.get("countries") or [])
                 if (
                     channel not in ("push", "email")
                     or not target or len(target) > 500
+                    or degrees is None or countries is None
                     or not isinstance(companies, list) or len(companies) > 20
                     or any(
                         not isinstance(c, str) or not c.strip() or len(c) > 80
@@ -1039,7 +1104,9 @@ def make_handler(db_path: Path):
                 # and nothing else, unlike a page view, which stores only a
                 # daily-salted hash because counting needs no identity.
                 sid, token, verify_token = store.add_subscription(
-                    channel, target, build_filters(companies), self._client_ip()
+                    channel, target,
+                    build_filters(companies, degrees, countries),
+                    self._client_ip(),
                 )
                 sent = False
                 if channel == "email":
@@ -1077,6 +1144,13 @@ def make_handler(db_path: Path):
                     # own permission grant and is live immediately.
                     "pending_verification": channel == "email",
                     "verification_sent": sent,
+                    # Companies only, on purpose. This answers "does this
+                    # employer exist on the board", which is the pick a
+                    # subscriber can get wrong by typing a name we do not
+                    # carry. Degrees and countries are chosen from fixed
+                    # lists and cannot be wrong that way, and folding their
+                    # counts in here would turn one clear answer into a
+                    # number nobody could act on.
                     "matches": company_matches(store, companies),
                 }).encode(), "application/json")
             elif self.path.split("?")[0] == "/api/unsubscribe":

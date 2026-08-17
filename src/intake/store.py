@@ -126,7 +126,10 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     channel      TEXT NOT NULL,               -- 'push' | 'email'
     target       TEXT NOT NULL,               -- push endpoint JSON or email address
-    filters      TEXT NOT NULL DEFAULT '{}',  -- JSON {"companies": [...], "company_keys": [...]}; '{}' = all
+    -- JSON: {"companies": [...], "company_keys": [...], "degrees": [...],
+    -- "countries": [...]}. Every key is optional and every one present
+    -- narrows; '{}' is the subscription to everything. See notify.build_filters.
+    filters      TEXT NOT NULL DEFAULT '{}',
     token        TEXT NOT NULL UNIQUE,        -- opaque unsubscribe secret (uuid4 hex)
     verify_token TEXT,                        -- double opt-in secret; only ever inside the email
     verified     INTEGER NOT NULL DEFAULT 0,  -- email: the confirmation link was clicked

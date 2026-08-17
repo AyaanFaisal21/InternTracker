@@ -1,10 +1,13 @@
-"""Notification backbone: subscription store roundtrip, company matching,
-the double opt-in gate, and the batched publish-time fan-out. Senders are
-capture callables; nothing leaves the process.
+"""Notification backbone: subscription store roundtrip, company, degree and
+country matching, the double opt-in gate, and the batched publish-time
+fan-out. Senders are capture callables; nothing leaves the process.
 
-The matching table is the load-bearing part. A false positive mails someone
-about a job they never asked for, and a false negative leaves them waiting
-on silence, so both directions are asserted by name.
+The matching tables are the load-bearing part. A false positive mails
+someone about a job they never asked for, and a false negative leaves them
+waiting on silence, so both directions are asserted by name. The three
+"absence matches" rules get their own cases: unstated degree, unparsed
+country and remote all have to pass a filter rather than fail it, and each
+is the difference between a working feed and a silent one.
 """
 
 from unittest.mock import patch
@@ -23,17 +26,33 @@ from intake.store import Store
 from intake.verify.rules import GateResult
 
 
-def make_posting(company="Stripe", title="Software Engineer Intern"):
-    return Posting.from_detection(RawDetection(
+def make_posting(company="Stripe", title="Software Engineer Intern",
+                 degrees=(), locations=(), verdict_degrees=None):
+    p = Posting.from_detection(RawDetection(
         source=Source.GREENHOUSE, company=company, title=title,
-        url="https://x.co/1",
+        url="https://x.co/1", locations=list(locations),
     ))
+    p.degree_levels = list(degrees)
+    if verdict_degrees is not None:
+        p.verdict = Verdict(
+            is_swe_internship=True, is_open=True, is_legitimate=True,
+            degree_levels=list(verdict_degrees), confidence="high", reasons=[],
+        )
+    return p
 
 
-def sub(sid, companies=None, channel="email", verified=True):
+def sub(sid, companies=None, degrees=None, countries=None,
+        channel="email", verified=True):
     return {"id": sid, "channel": channel, "target": f"s{sid}@x.edu",
             "verified": verified, "token": f"tok{sid}",
-            "filters": build_filters(companies or [])}
+            "filters": build_filters(companies or [], degrees, countries)}
+
+
+def delivered(filters_sub, posting) -> bool:
+    """Did this subscription receive this posting? Asserted through the real
+    fan-out rather than _matches, so the tables cover delivery and not just
+    the predicate."""
+    return notify_new_postings([filters_sub], [posting], lambda s, ps: None) == 1
 
 
 # -- store roundtrip ------------------------------------------------------
@@ -258,6 +277,21 @@ def test_build_filters_keeps_the_wording_and_the_key():
     }
 
 
+def test_build_filters_writes_only_the_dimensions_that_narrow():
+    # Nothing picked stays the '{}' the store has always understood, and an
+    # empty dimension is left out rather than stored as an empty list, so
+    # every key present in a stored row means a constraint.
+    assert build_filters([], [], []) == {}
+    assert build_filters([], ["BS"]) == {"degrees": ["BS"]}
+    assert build_filters([], None, ["Canada"]) == {"countries": ["Canada"]}
+    assert build_filters(["NVIDIA"], ["BS"], ["United States", "Canada"]) == {
+        "companies": ["NVIDIA"],
+        "company_keys": ["nvidia"],
+        "degrees": ["BS"],
+        "countries": ["United States", "Canada"],
+    }
+
+
 def test_rows_written_before_company_keys_existed_still_match():
     sends = []
     legacy = {"id": 9, "channel": "push", "target": "x", "verified": False,
@@ -265,6 +299,134 @@ def test_rows_written_before_company_keys_existed_still_match():
     n = notify_new_postings([legacy], [make_posting("NVIDIA")],
                             lambda s, ps: sends.append(s["id"]))
     assert n == 1 and sends == [9]
+
+
+# -- degrees --------------------------------------------------------------
+
+# (degrees the subscriber picked, the posting's degree levels, should it match)
+DEGREE_CASES = [
+    ([], ["PhD"], True),                 # nothing picked constrains nothing
+    ([], [], True),
+    (["BS"], ["BS"], True),
+    (["BS"], ["BS", "MS"], True),        # OR within the dimension
+    (["MS", "PhD"], ["PhD"], True),
+    (["BS", "MS", "PhD"], ["MS"], True),
+    (["BS"], ["MS"], False),
+    (["BS"], ["MS", "PhD"], False),      # the undergraduate's whole problem
+    (["MS", "PhD"], ["BS"], False),
+    (["PhD"], ["BS", "MS"], False),
+    # The load-bearing case. A posting states no level when the classifier
+    # could not support one, which it deliberately prefers over guessing, so
+    # reading the empty list as "matches nothing" would hide most of the
+    # board from every subscriber who picked a degree at all.
+    (["BS"], [], True),
+    (["PhD"], [], True),
+    (["BS", "MS", "PhD"], [], True),
+]
+
+
+@pytest.mark.parametrize("picked,stated,expected", DEGREE_CASES)
+def test_degree_matching_table(picked, stated, expected):
+    assert delivered(sub(1, degrees=picked), make_posting(degrees=stated)) is expected
+
+
+def test_the_verifier_read_of_the_degree_beats_the_title_heuristic():
+    # The rule gate guesses from the title; the verifier read the page. The
+    # board renders the verdict, so the alerts have to filter on it or the
+    # mail and the page disagree about the same posting.
+    graduate = make_posting(degrees=["BS"], verdict_degrees=["PhD"])
+    assert delivered(sub(1, degrees=["BS"]), graduate) is False
+    assert delivered(sub(1, degrees=["PhD"]), graduate) is True
+
+    # An empty verdict is not an answer, so the heuristic still stands.
+    heuristic = make_posting(degrees=["BS"], verdict_degrees=[])
+    assert delivered(sub(1, degrees=["BS"]), heuristic) is True
+    assert delivered(sub(1, degrees=["PhD"]), heuristic) is False
+
+
+# -- countries ------------------------------------------------------------
+
+# (countries the subscriber picked, the posting's location labels, expected)
+COUNTRY_CASES = [
+    ([], ["Bengaluru"], True),                        # nothing picked
+    (["United States"], ["New York, NY"], True),
+    (["United States"], ["US, CA, Santa Clara"], True),
+    (["United States", "Canada"], ["Toronto, ON"], True),   # OR within
+    (["United States", "Canada"], ["Seattle"], True),
+    (["India"], ["Bengaluru"], True),
+    (["United States"], ["Bengaluru"], False),
+    (["Canada"], ["US, CA, Santa Clara"], False),
+    (["United States", "Canada"], ["London"], False),
+    # Absence of evidence must not hide a posting, so both unknowns pass.
+    # "Atlantis" parses to no country at all: an unread label is not proof
+    # the job is somewhere else.
+    (["United States"], ["Atlantis"], True),
+    (["United States"], [], True),                    # no labels at all
+    # Remote is workable from anywhere, so it clears every region even when
+    # the label also names a country we did not pick.
+    (["United States"], ["Remote - India"], True),
+    (["Canada"], ["Remote"], True),
+    (["Germany"], ["US Remote"], True),
+]
+
+
+@pytest.mark.parametrize("picked,labels,expected", COUNTRY_CASES)
+def test_country_matching_table(picked, labels, expected):
+    assert delivered(sub(1, countries=picked),
+                     make_posting(locations=labels)) is expected
+
+
+# -- the dimensions together ----------------------------------------------
+
+def test_dimensions_are_anded_together():
+    wanted = sub(1, companies=["NVIDIA"], degrees=["BS"],
+                 countries=["United States"])
+    hit = make_posting("NVIDIA", degrees=["BS"], locations=["Santa Clara, CA"])
+    assert delivered(wanted, hit) is True
+
+    # Each dimension alone is enough to refuse, so no one of them can be
+    # carrying the others.
+    for miss in (
+        make_posting("Stripe", degrees=["BS"], locations=["Santa Clara, CA"]),
+        make_posting("NVIDIA", degrees=["PhD"], locations=["Santa Clara, CA"]),
+        make_posting("NVIDIA", degrees=["BS"], locations=["Bengaluru"]),
+    ):
+        assert delivered(wanted, miss) is False
+
+    # And the three absences still pass while the rest of the filter holds.
+    assert delivered(wanted, make_posting("NVIDIA", degrees=[],
+                                          locations=["Atlantis"])) is True
+
+
+def test_the_undergraduate_who_follows_a_big_employer():
+    # The case the filters exist for: a PhD-only research role abroad at a
+    # company the subscriber does follow, and the undergraduate posting at
+    # the same company that they actually want.
+    student = sub(1, companies=["NVIDIA"], degrees=["BS"],
+                  countries=["United States", "Canada"])
+    research = make_posting("NVIDIA", "Research Scientist Intern",
+                            degrees=["PhD"], locations=["Tel Aviv"])
+    intern = make_posting("NVIDIA", "Software Engineer Intern",
+                          degrees=["BS"], locations=["Toronto, ON"])
+    calls = []
+    n = notify_new_postings([student], [research, intern],
+                            lambda s, ps: calls.append([p.title for p in ps]))
+    assert n == 1 and calls == [["Software Engineer Intern"]]
+
+
+def test_rows_written_before_degrees_and_countries_existed_are_unconstrained():
+    # A legacy row carries neither key, and the fan-out must read that as
+    # the same "every degree, every region" it meant when it was written.
+    legacy = {"id": 9, "channel": "email", "target": "x@y.edu",
+              "verified": True, "token": "t9",
+              "filters": {"companies": ["NVIDIA"], "company_keys": ["nvidia"]}}
+    for posting in (
+        make_posting("NVIDIA", degrees=["PhD"], locations=["Tel Aviv"]),
+        make_posting("NVIDIA", degrees=["BS"], locations=["Santa Clara, CA"]),
+        make_posting("NVIDIA"),
+    ):
+        assert delivered(legacy, posting) is True
+    assert delivered(legacy, make_posting("Stripe")) is False
 
 
 # -- opt-in gate ----------------------------------------------------------
