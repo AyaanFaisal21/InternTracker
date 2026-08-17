@@ -18,6 +18,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from .schema import Posting, RawDetection, Source, Status, Verdict, suggestion_key
+from .store import CONSENT_COLUMNS
 
 
 def utc_day() -> date:
@@ -334,17 +335,21 @@ class PostgresStore:
 
     # -- subscriptions ----------------------------------------------------
 
-    def add_subscription(self, channel: str, target: str, filters: dict) -> tuple[int, str, str]:
+    def add_subscription(
+        self, channel: str, target: str, filters: dict, consent_ip: str | None = None,
+    ) -> tuple[int, str, str]:
         """Same contract as the SQLite store: (id, token, verify_token), the
-        row unverified until the emailed link is clicked."""
+        row unverified until the emailed link is clicked, and consent_ip the
+        address the signup arrived from."""
         # token is unique, so the once-retry in _run cannot silently
         # double-insert; a replayed INSERT errors instead.
         token, verify_token = uuid.uuid4().hex, uuid.uuid4().hex
         sid = self._run(
             lambda c: c.execute(
-                "INSERT INTO subscriptions (channel, target, filters, token, verify_token) "
-                "VALUES (%s,%s,%s,%s,%s) RETURNING id",
-                (channel, target, Jsonb(filters), token, verify_token),
+                "INSERT INTO subscriptions "
+                "(channel, target, filters, token, verify_token, consent_ip) "
+                "VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+                (channel, target, Jsonb(filters), token, verify_token, consent_ip),
             ).fetchone()["id"]
         )
         return sid, token, verify_token
@@ -357,22 +362,54 @@ class PostgresStore:
             ).rowcount > 0
         )
 
-    def verify_by_token(self, verify_token: str) -> bool:
-        """Idempotent double opt-in flip; True when the token named a row."""
+    def verify_by_token(self, verify_token: str, verify_ip: str | None = None) -> bool:
+        """Idempotent double opt-in flip; True when the token named a row.
+
+        The evidence columns keep the first click, same as the SQLite store.
+        """
         return self._run(
             lambda c: c.execute(
-                "UPDATE subscriptions SET verified = true WHERE verify_token = %s",
-                (verify_token,),
+                "UPDATE subscriptions SET verified = true, "
+                "verified_at = coalesce(verified_at, now()), "
+                "verify_ip = coalesce(verify_ip, %s) WHERE verify_token = %s",
+                (verify_ip, verify_token),
             ).rowcount > 0
         )
 
+    def mark_confirmation_sent(self, sub_id: int) -> None:
+        """Stamp the row a confirmation was accepted for; the first stamp
+        wins. Same contract as the SQLite store."""
+        self._run(
+            lambda c: c.execute(
+                "UPDATE subscriptions SET confirmation_sent_at = now() "
+                "WHERE id = %s AND confirmation_sent_at IS NULL",
+                (sub_id,),
+            )
+        )
+
+    def pending_confirmations(self, limit: int = 5) -> list[dict]:
+        """Active email rows that were never mailed a confirmation. Same
+        contract as the SQLite store: these are signups made while sending
+        was unconfigured, and they wait rather than expire."""
+        rows = self._run(
+            lambda c: c.execute(
+                "SELECT * FROM subscriptions WHERE active AND channel = 'email' "
+                "AND NOT verified AND confirmation_sent_at IS NULL "
+                "ORDER BY id LIMIT %s",
+                (int(limit),),
+            ).fetchall()
+        )
+        return [self._sub_dict(r) for r in rows]
+
     def prune_unverified(self, days: int = 7) -> int:
-        """Delete email subscriptions that never confirmed. Same reasoning as
-        the SQLite store: an address that never opted in is not ours to keep."""
+        """Delete email subscriptions that were mailed a confirmation and
+        never clicked it. Same reasoning as the SQLite store, including the
+        scope: a row nobody could confirm because nothing was sent stays."""
         return self._run(
             lambda c: c.execute(
                 "DELETE FROM subscriptions WHERE channel = 'email' AND NOT verified "
-                "AND created_at < now() - make_interval(days => %s)",
+                "AND confirmation_sent_at IS NOT NULL "
+                "AND confirmation_sent_at < now() - make_interval(days => %s)",
                 (int(days),),
             ).rowcount
         )
@@ -409,11 +446,15 @@ class PostgresStore:
 
     @staticmethod
     def _sub_dict(row: dict) -> dict:
-        # jsonb filters arrive already decoded; created_at gets the same
-        # TEXT alignment _sugg_dict applies.
+        # jsonb filters arrive already decoded; the timestamps get the same
+        # TEXT alignment _sugg_dict applies, so one row reads identically on
+        # both backends. Consent evidence stops here: see store.CONSENT_COLUMNS.
         d = dict(row)
-        if d.get("created_at") is not None:
-            d["created_at"] = d["created_at"].isoformat()
+        for col in ("created_at", "verified_at", "confirmation_sent_at"):
+            if d.get(col) is not None:
+                d[col] = d[col].isoformat()
+        for col in CONSENT_COLUMNS:
+            d.pop(col, None)
         return d
 
     # -- visits -----------------------------------------------------------

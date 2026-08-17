@@ -26,6 +26,12 @@ def utc_day() -> str:
 _pg_store = None
 _pg_lock = threading.Lock()
 
+# Consent evidence, dropped from every subscription dict a store hands back.
+# The columns exist so a CASL or GDPR challenge can be answered from SQL, and
+# nothing in the fan-out, the sender or the API needs them, so they stop at
+# this boundary and cannot reach a log line or a response body by accident.
+CONSENT_COLUMNS = ("consent_ip", "verify_ip")
+
 
 def open_store(db_path: Path | str):
     """Store factory. DATABASE_URL set -> Postgres; unset -> SQLite.
@@ -124,6 +130,20 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     token        TEXT NOT NULL UNIQUE,        -- opaque unsubscribe secret (uuid4 hex)
     verify_token TEXT,                        -- double opt-in secret; only ever inside the email
     verified     INTEGER NOT NULL DEFAULT 0,  -- email: the confirmation link was clicked
+    -- Consent evidence, and the only address this project retains anywhere.
+    -- Page views deliberately keep none (visits.visitor_hash is a
+    -- daily-salted hash whose salt is deleted after two days), because
+    -- counting visitors needs no identity. Proving an opt-in does: a CASL or
+    -- GDPR challenge asks who asked for this mail, from where, and when they
+    -- confirmed, and a hash answers none of it. Purpose-limited to that one
+    -- answer: never logged, never in an API response, never joined to visits.
+    consent_ip   TEXT,                        -- address the signup came from
+    verified_at  TEXT,                        -- when the confirmation link was clicked
+    verify_ip    TEXT,                        -- address that clicked it
+    -- Set when SES accepts a confirmation, NULL when none was ever sent.
+    -- That distinction is what the prune runs on: a signup made while the
+    -- email channel is unconfigured waits here instead of expiring unmailed.
+    confirmation_sent_at TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     active       INTEGER NOT NULL DEFAULT 1
 );
@@ -187,6 +207,12 @@ class Store:
             self.conn.execute(
                 "ALTER TABLE subscriptions ADD COLUMN verified INTEGER NOT NULL DEFAULT 0"
             )
+        # Consent evidence and the confirmation stamp. Rows written before
+        # these existed keep NULLs, which read correctly: no recorded address,
+        # and no confirmation ever sent.
+        for col in ("consent_ip", "verified_at", "verify_ip", "confirmation_sent_at"):
+            if col not in scols:
+                self.conn.execute(f"ALTER TABLE subscriptions ADD COLUMN {col} TEXT")
         # NULLs stay distinct under a SQLite unique index, so rows created
         # before double opt-in existed keep their empty verify_token.
         self.conn.execute(
@@ -368,19 +394,26 @@ class Store:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def add_subscription(self, channel: str, target: str, filters: dict) -> tuple[int, str, str]:
+    def add_subscription(
+        self, channel: str, target: str, filters: dict, consent_ip: str | None = None,
+    ) -> tuple[int, str, str]:
         """Create a subscription. Returns (id, token, verify_token).
 
         token is the unsubscribe secret the API hands back to the caller.
         verify_token is the double opt-in secret that only ever travels
         inside the confirmation email: an email row starts unverified and
         receives nothing until someone at that address clicks the link.
+
+        consent_ip is where the request came from. It pairs with created_at
+        as half the opt-in evidence; the confirmation click writes the other
+        half (see verify_by_token).
         """
         token, verify_token = uuid.uuid4().hex, uuid.uuid4().hex
         cur = self.conn.execute(
-            "INSERT INTO subscriptions (channel, target, filters, token, verify_token) "
-            "VALUES (?,?,?,?,?)",
-            (channel, target, json.dumps(filters), token, verify_token),
+            "INSERT INTO subscriptions "
+            "(channel, target, filters, token, verify_token, consent_ip) "
+            "VALUES (?,?,?,?,?,?)",
+            (channel, target, json.dumps(filters), token, verify_token, consent_ip),
         )
         self.conn.commit()
         return cur.lastrowid, token, verify_token
@@ -392,26 +425,66 @@ class Store:
         self.conn.commit()
         return cur.rowcount > 0
 
-    def verify_by_token(self, verify_token: str) -> bool:
+    def verify_by_token(self, verify_token: str, verify_ip: str | None = None) -> bool:
         """Flip the double opt-in flag. True when the token named a row.
 
         Idempotent: a second click on the same link still matches, so the
         confirmation page never looks broken to someone who double-tapped.
+        The evidence columns take the first click and keep it, because the
+        click that proves the opt-in is the one that flipped the flag.
         """
         cur = self.conn.execute(
-            "UPDATE subscriptions SET verified = 1 WHERE verify_token = ?",
-            (verify_token,),
+            "UPDATE subscriptions SET verified = 1, "
+            "verified_at = COALESCE(verified_at, datetime('now')), "
+            "verify_ip = COALESCE(verify_ip, ?) WHERE verify_token = ?",
+            (verify_ip, verify_token),
         )
         self.conn.commit()
         return cur.rowcount > 0
 
+    def mark_confirmation_sent(self, sub_id: int) -> None:
+        """Stamp the row a confirmation was accepted for. The stamp starts
+        the unconfirmed window, so a row that was never mailed never enters
+        it. Keeps the first stamp: that is the mailing the window runs on."""
+        self.conn.execute(
+            "UPDATE subscriptions SET confirmation_sent_at = datetime('now') "
+            "WHERE id = ? AND confirmation_sent_at IS NULL",
+            (sub_id,),
+        )
+        self.conn.commit()
+
+    def pending_confirmations(self, limit: int = 5) -> list[dict]:
+        """Active email rows that were never mailed a confirmation.
+
+        A null confirmation_sent_at is the ordinary state while the email
+        channel is unconfigured: the subscription exists, nothing was sent,
+        and nobody can be expected to click a link they never received.
+        These wait here rather than expiring, and the poller mails them on
+        the first cycle after sending works.
+        """
+        rows = self.conn.execute(
+            "SELECT * FROM subscriptions WHERE active = 1 AND channel = 'email' "
+            "AND verified = 0 AND confirmation_sent_at IS NULL "
+            "ORDER BY id LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return [self._sub_dict(r) for r in rows]
+
     def prune_unverified(self, days: int = 7) -> int:
-        """Delete email subscriptions that never confirmed. An address whose
-        owner never opted in is not ours to keep, and the row is otherwise
-        immortal because nothing else ever touches it."""
+        """Delete email subscriptions that were mailed a confirmation and
+        never clicked it. An address whose owner ignored the confirmation is
+        not ours to keep, and the row is otherwise immortal because nothing
+        else ever touches it.
+
+        Scoped to rows that were actually mailed. A signup made while
+        sending was unconfigured has no confirmation to ignore, so deleting
+        it would discard a consent the visitor gave and we simply could not
+        act on yet.
+        """
         cur = self.conn.execute(
             "DELETE FROM subscriptions WHERE channel = 'email' AND verified = 0 "
-            "AND created_at < datetime('now', ?)",
+            "AND confirmation_sent_at IS NOT NULL "
+            "AND confirmation_sent_at < datetime('now', ?)",
             (f"-{int(days)} days",),
         )
         self.conn.commit()
@@ -437,15 +510,18 @@ class Store:
         rows = self.conn.execute(
             "SELECT * FROM subscriptions WHERE active = 1 ORDER BY id"
         ).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["filters"] = json.loads(d["filters"])
-            # SQLite has no boolean type; match the Postgres store so the
-            # fan-out's opt-in check reads the same on both backends.
-            d["verified"] = bool(d["verified"])
-            out.append(d)
-        return out
+        return [self._sub_dict(r) for r in rows]
+
+    @staticmethod
+    def _sub_dict(row: sqlite3.Row) -> dict:
+        d = dict(row)
+        d["filters"] = json.loads(d["filters"])
+        # SQLite has no boolean type; match the Postgres store so the
+        # fan-out's opt-in check reads the same on both backends.
+        d["verified"] = bool(d["verified"])
+        for col in CONSENT_COLUMNS:
+            d.pop(col, None)
+        return d
 
     def all_postings(self) -> list[Posting]:
         rows = self.conn.execute(

@@ -42,7 +42,7 @@ from .notify import build_filters, company_key
 from .resolve import COMPANY_MAX, clean_company, valid_company
 from .roles import classify_role
 from .schema import Status
-from .senders import clean_email, email_sender, valid_email
+from .senders import clean_email, email_sender, recipient_key, valid_email
 from .store import open_store
 
 log = logging.getLogger("intake")
@@ -902,7 +902,13 @@ def make_handler(db_path: Path):
                     self._send(429, b"slow down", "text/plain")
                     return
                 token = self._query_token()
-                ok = bool(token) and open_store(db_path).verify_by_token(token)
+                # The click, its time and its address are the half of the
+                # opt-in evidence the signup could not record: they prove
+                # someone at that address confirmed, not merely that someone
+                # typed it in. Stored on the row, never logged or echoed.
+                ok = bool(token) and open_store(db_path).verify_by_token(
+                    token, self._client_ip()
+                )
                 self._send_page(ok, VERIFIED_PAGE)
             elif path == "/api/unsubscribe":
                 # A link click, so it acts immediately and asks nothing: an
@@ -1027,13 +1033,18 @@ def make_handler(db_path: Path):
                         return
                 companies = [c.strip() for c in companies]
                 store = open_store(db_path)
+                # The address is consent evidence here, not analytics: it
+                # records where this opt-in came from, which is what answers
+                # a later "who asked for this mail". It reaches this column
+                # and nothing else, unlike a page view, which stores only a
+                # daily-salted hash because counting needs no identity.
                 sid, token, verify_token = store.add_subscription(
-                    channel, target, build_filters(companies)
+                    channel, target, build_filters(companies), self._client_ip()
                 )
                 sent = False
                 if channel == "email":
                     sender = email_sender()
-                    recipient = hashlib.sha256(target.lower().encode()).hexdigest()[:16]
+                    recipient = recipient_key(target)
                     if sender is None:
                         log.warning(
                             "subscription %s created but no email channel is "
@@ -1053,6 +1064,11 @@ def make_handler(db_path: Path):
                             "id": sid, "target": target,
                             "token": token, "verify_token": verify_token,
                         })
+                        if sent:
+                            # Stamped only on acceptance. An unstamped row is
+                            # a signup nobody was asked to confirm, which the
+                            # prune spares and the poller mails later.
+                            store.mark_confirmation_sent(sid)
                 self._send(200, json.dumps({
                     "id": sid,
                     "token": token,

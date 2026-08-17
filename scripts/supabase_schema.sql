@@ -188,3 +188,31 @@ create table if not exists notify_sends (
 -- and how often is internal. The API server and the poller own these rows
 -- through a role that bypasses RLS.
 alter table notify_sends enable row level security;
+
+-- Consent evidence for the email channel (CASL, GDPR). created_at already
+-- says when the request arrived; these say where it came from and when the
+-- confirmation click landed, and the pair is what actually proves a double
+-- opt-in rather than merely asserting one.
+--
+-- consent_ip and verify_ip are the only addresses this project retains.
+-- Page views deliberately retain none: visits.visitor_hash is a
+-- daily-salted hash and the salt is deleted after two days, because
+-- counting visitors needs no identity. Proving that the person at one
+-- address asked for this mail does. The exception is purpose-limited to
+-- that answer, and stops at this table: the columns are never logged, never
+-- returned by the API, and never joined to visits. RLS on subscriptions is
+-- already on with no policies, so they stay off the anon REST surface too.
+alter table subscriptions add column if not exists consent_ip text;
+alter table subscriptions add column if not exists verified_at timestamptz;
+alter table subscriptions add column if not exists verify_ip text;
+
+-- Set when SES accepts a confirmation for this row, null when none was ever
+-- sent. That is the difference between "confirmed nothing" and "was asked
+-- nothing": the seven-day prune only removes the first kind, and the poller
+-- mails the second kind as soon as sending is configured. Signups taken
+-- while the email channel is dark therefore survive instead of expiring.
+alter table subscriptions add column if not exists confirmation_sent_at timestamptz;
+
+-- Query pattern: the poller's per-cycle backfill scans for the null case.
+create index if not exists subscriptions_pending_confirmation_idx
+    on subscriptions (id) where confirmation_sent_at is null and not verified;

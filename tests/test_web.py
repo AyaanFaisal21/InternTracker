@@ -1,9 +1,9 @@
 """Web server tests: real HTTP server on an ephemeral port, real store.
 Covers the dashboard smoke path, the company list the subscribe form
 autocompletes against, the subscription endpoints including the double
-opt-in and the email-clickable links, the visit beacon's privacy contract,
-and the suggestion endpoint's spend defenses (validation and duplicate
-collapsing).
+opt-in, the consent evidence they record, the email-clickable links, the
+visit beacon's privacy contract, and the suggestion endpoint's spend
+defenses (validation and duplicate collapsing).
 
 No mail can leave: every test that reaches the subscribe endpoint replaces
 web.email_sender with a recorder, so the result does not depend on whether
@@ -12,6 +12,7 @@ the optional boto3 extra happens to be installed.
 Skips when the environment forbids loopback connections (some sandboxes do).
 """
 
+import logging
 import socket
 import threading
 import time
@@ -34,7 +35,8 @@ def loopback_blocked() -> bool:
     finally:
         probe.close()
 
-from intake.schema import RawDetection, Source, Status
+from intake.notify import notify_new_postings
+from intake.schema import Posting, RawDetection, Source, Status
 from intake.store import Store
 from intake.web import (
     COMPANIES_LIMIT,
@@ -419,6 +421,134 @@ def test_one_click_unsubscribe_post_carries_its_token_in_the_query(tmp_path):
                        headers={"Content-Type": "application/x-www-form-urlencoded"})
         assert r.status_code == 200 and r.json() == {"ok": True}
         assert Store(db).active_subscriptions() == []
+    finally:
+        UNSUBSCRIBE_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_consent_evidence_is_recorded_and_never_served(tmp_path, caplog):
+    db = tmp_path / "consent.db"
+    Store(db)
+    for limiter in (SUBSCRIBE_LIMIT, CONFIRM_LIMIT, VERIFY_LIMIT, COMPANIES_LIMIT):
+        limiter.reset()
+    reset_companies_cache()
+    # Both requests arrive through Caddy, so the forwarded address is the
+    # visitor and the socket address is the proxy.
+    signup_ip, click_ip = "198.51.100.23", "203.0.113.7"
+    mailbox = Mailbox()
+
+    server, base = serve(db)
+    try:
+        with caplog.at_level(logging.INFO, logger="intake"):
+            with patch("intake.web.email_sender", return_value=mailbox):
+                created = httpx.post(
+                    f"{base}/api/subscribe",
+                    json={"channel": "email", "target": "af@scarletmail.rutgers.edu",
+                          "filters": {"companies": ["NVIDIA"]}},
+                    headers={"X-Forwarded-For": signup_ip},
+                )
+            assert created.status_code == 200
+
+            row = Store(db).conn.execute("SELECT * FROM subscriptions").fetchone()
+            # Half the opt-in evidence: when the request came in, from where,
+            # and that a confirmation actually went out.
+            assert row["consent_ip"] == signup_ip and row["created_at"]
+            assert row["confirmation_sent_at"] and row["verified_at"] is None
+
+            page = httpx.get(
+                f"{base}/api/verify?token={mailbox.sent[0]['verify_token']}",
+                headers={"X-Forwarded-For": click_ip},
+            )
+            assert page.status_code == 200 and "Alerts confirmed" in page.text
+            row = Store(db).conn.execute("SELECT * FROM subscriptions").fetchone()
+            # The other half: someone at that address clicked, and when.
+            assert row["verify_ip"] == click_ip and row["verified_at"]
+
+            served = [created.text, page.text]
+            for path in ("/api/postings", "/api/companies", "/api/suggestions"):
+                served.append(httpx.get(f"{base}{path}").text)
+
+        # The narrow exception to this project's no-IP rule buys exactly one
+        # thing, an answer to "who asked for this mail". It buys no reach:
+        # neither address is in a response body or a log line.
+        for body in served:
+            assert signup_ip not in body and click_ip not in body
+        assert signup_ip not in caplog.text and click_ip not in caplog.text
+    finally:
+        for limiter in (SUBSCRIBE_LIMIT, CONFIRM_LIMIT, VERIFY_LIMIT, COMPANIES_LIMIT):
+            limiter.reset()
+        reset_companies_cache()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+@pytest.mark.parametrize("sender,sent", [(None, False), (Mailbox(ok=False), False)])
+def test_a_signup_nobody_could_mail_waits_instead_of_expiring(sender, sent, tmp_path):
+    """No SES sender at all, and an SES that refused. Either way no
+    confirmation reached the visitor, so the row is a promise we still owe
+    rather than an invitation they ignored."""
+    db = tmp_path / "dark.db"
+    Store(db)
+    SUBSCRIBE_LIMIT.reset()
+    CONFIRM_LIMIT.reset()
+
+    server, base = serve(db)
+    try:
+        with patch("intake.web.email_sender", return_value=sender):
+            r = httpx.post(f"{base}/api/subscribe",
+                           json={"channel": "email", "target": "early@x.edu"})
+        assert r.status_code == 200
+        # The contract the frontend keys on to say "alerts are coming soon".
+        assert r.json()["verification_sent"] is sent
+        assert r.json()["pending_verification"] is True
+
+        store = Store(db)
+        row = store.conn.execute("SELECT * FROM subscriptions").fetchone()
+        assert row["confirmation_sent_at"] is None
+        # Unmailed rows are outside the prune at any window, so the signup
+        # survives until sending works and the poller mails it.
+        assert store.prune_unverified(0) == 0
+        assert [s["id"] for s in store.pending_confirmations()] == [row["id"]]
+    finally:
+        SUBSCRIBE_LIMIT.reset()
+        CONFIRM_LIMIT.reset()
+        server.shutdown()
+
+
+@pytest.mark.skipif(loopback_blocked(), reason="loopback connections blocked")
+def test_unsubscribing_suppresses_before_the_next_fan_out(tmp_path):
+    db = tmp_path / "sup.db"
+    store = Store(db)
+    UNSUBSCRIBE_LIMIT.reset()
+    stay, _, stay_verify = store.add_subscription("email", "stay@x.edu", {})
+    off, token, off_verify = store.add_subscription("email", "off@x.edu", {})
+    store.verify_by_token(stay_verify)
+    store.verify_by_token(off_verify)
+    posting = Posting.from_detection(RawDetection(
+        source=Source.GREENHOUSE, company="Stripe",
+        title="Software Engineer Intern", url="https://stripe.com/jobs/1",
+    ))
+
+    def fan_out():
+        sends = []
+        notify_new_postings(Store(db).active_subscriptions(), [posting],
+                            lambda s, ps: sends.append(s["id"]))
+        return sends
+
+    server, base = serve(db)
+    try:
+        assert fan_out() == [stay, off]
+        r = httpx.post(f"{base}/api/unsubscribe", json={"token": token})
+        assert r.status_code == 200 and r.json() == {"ok": True}
+        # The row is inactive by the time the response arrives: no queue, no
+        # batch, nothing left to drain before the next cycle honors it.
+        assert fan_out() == [stay]
+
+        # The emailed one-click path lands the same way.
+        again = httpx.get(f"{base}/api/unsubscribe?token={token}")
+        assert again.status_code == 200
+        assert fan_out() == [stay]
     finally:
         UNSUBSCRIBE_LIMIT.reset()
         server.shutdown()
