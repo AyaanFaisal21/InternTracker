@@ -67,24 +67,132 @@ def test_subscription_store_roundtrip(tmp_path):
     assert store.deactivate_by_token("not-a-token") is False
 
 
-def test_unverified_email_subscriptions_expire(tmp_path):
+def test_only_mailed_and_unconfirmed_email_subscriptions_expire(tmp_path):
     store = Store(tmp_path / "p.db")
     stale, _, _ = store.add_subscription("email", "stale@x.edu", {})
     fresh, _, _ = store.add_subscription("email", "fresh@x.edu", {})
     confirmed, _, verify = store.add_subscription("email", "ok@x.edu", {})
     pushed, _, _ = store.add_subscription("push", '{"endpoint": "x"}', {})
+    waiting, _, _ = store.add_subscription("email", "waiting@x.edu", {})
     store.verify_by_token(verify)
+    # Everything but `waiting` was mailed a confirmation; `waiting` is a
+    # signup taken while the email channel was still dark.
+    for sid in (stale, fresh, confirmed):
+        store.mark_confirmation_sent(sid)
     store.conn.execute(
         "UPDATE subscriptions SET created_at = datetime('now', '-8 days') "
-        "WHERE id IN (?,?,?)", (stale, confirmed, pushed))
+        "WHERE id IN (?,?,?)", (stale, confirmed, waiting))
+    store.conn.execute(
+        "UPDATE subscriptions SET confirmation_sent_at = datetime('now', '-8 days') "
+        "WHERE id IN (?,?)", (stale, confirmed))
     store.conn.commit()
 
-    # Only the address that never confirmed goes. A confirmed row is wanted,
-    # and push has no confirmation step to fail.
+    # Only the address that was asked and never answered goes. A confirmed
+    # row is wanted, push has no confirmation step to fail, and the row
+    # nobody could confirm was never sent anything to confirm.
     assert store.prune_unverified() == 1
     assert sorted(s["id"] for s in store.active_subscriptions()) == [
-        fresh, confirmed, pushed]
+        fresh, confirmed, pushed, waiting]
     assert store.prune_unverified() == 0
+
+
+def test_a_signup_taken_before_launch_waits_instead_of_expiring(tmp_path):
+    store = Store(tmp_path / "wait.db")
+    waiting, _, _ = store.add_subscription("email", "early@x.edu", {})
+    store.conn.execute(
+        "UPDATE subscriptions SET created_at = datetime('now', '-90 days') "
+        "WHERE id = ?", (waiting,))
+    store.conn.commit()
+
+    # Nothing was sent to this address, so there is nothing it failed to
+    # confirm. The consent stands until it is confirmed or withdrawn, however
+    # long the launch takes.
+    assert store.prune_unverified() == 0
+    assert [s["id"] for s in store.active_subscriptions()] == [waiting]
+    assert [s["id"] for s in store.pending_confirmations()] == [waiting]
+    # It is still unconfirmed, so it receives no alerts in the meantime.
+    assert notify_new_postings(store.active_subscriptions(), [make_posting()],
+                               lambda s, ps: None) == 0
+
+    # The moment it is mailed, the ordinary window starts, counted from that
+    # mailing rather than from a signup nobody answered.
+    store.mark_confirmation_sent(waiting)
+    assert store.prune_unverified() == 0
+    store.conn.execute(
+        "UPDATE subscriptions SET confirmation_sent_at = datetime('now', '-8 days') "
+        "WHERE id = ?", (waiting,))
+    store.conn.commit()
+    assert store.prune_unverified() == 1
+
+
+# -- consent evidence -----------------------------------------------------
+
+def test_consent_evidence_records_the_request_and_the_confirmation(tmp_path):
+    store = Store(tmp_path / "consent.db")
+    sid, _, verify = store.add_subscription(
+        "email", "a@b.edu", build_filters(["NVIDIA"]), "198.51.100.23")
+
+    def row():
+        return store.conn.execute(
+            "SELECT * FROM subscriptions WHERE id = ?", (sid,)).fetchone()
+
+    # Half the evidence at signup: when the request arrived and from where.
+    assert row()["consent_ip"] == "198.51.100.23" and row()["created_at"]
+    assert row()["verified_at"] is None and row()["verify_ip"] is None
+
+    # The other half at the click, which is what proves the opt-in was
+    # double rather than merely claimed.
+    assert store.verify_by_token(verify, "203.0.113.7") is True
+    confirmed_at = row()["verified_at"]
+    assert confirmed_at and row()["verify_ip"] == "203.0.113.7"
+
+    # A later click on the same link still answers True, and the evidence
+    # stays the evidence: the click that confirmed, not the last one.
+    assert store.verify_by_token(verify, "203.0.113.99") is True
+    assert row()["verify_ip"] == "203.0.113.7"
+    assert row()["verified_at"] == confirmed_at
+
+
+def test_consent_addresses_stay_in_the_table(tmp_path):
+    store = Store(tmp_path / "leak.db")
+    sid, _, verify = store.add_subscription("email", "a@b.edu", {}, "198.51.100.23")
+    store.verify_by_token(verify, "203.0.113.7")
+
+    # The columns answer a legal question from SQL and nothing else, so no
+    # dict this store hands out carries them: nothing downstream can log or
+    # serialize an address it was never given.
+    for d in (*store.active_subscriptions(), *store.pending_confirmations()):
+        assert "consent_ip" not in d and "verify_ip" not in d
+    assert store.active_subscriptions()[0]["id"] == sid
+    stored = store.conn.execute(
+        "SELECT consent_ip, verify_ip FROM subscriptions").fetchone()
+    assert tuple(stored) == ("198.51.100.23", "203.0.113.7")
+
+
+# -- immediate suppression ------------------------------------------------
+
+def test_unsubscribing_lands_before_the_next_fan_out(tmp_path):
+    db = tmp_path / "off.db"
+    store = Store(db)
+    stay, _, v1 = store.add_subscription("email", "stay@x.edu", {})
+    off, token, v2 = store.add_subscription("email", "off@x.edu", {})
+    store.verify_by_token(v1)
+    store.verify_by_token(v2)
+    sends = []
+
+    def fan_out(from_store):
+        return notify_new_postings(from_store.active_subscriptions(),
+                                   [make_posting()],
+                                   lambda s, ps: sends.append(s["id"]))
+
+    assert fan_out(store) == 2
+
+    # No queue and no deferred write: the call that answers True has already
+    # committed, which a second connection to the same file proves.
+    assert store.deactivate_by_token(token) is True
+    assert [s["id"] for s in Store(db).active_subscriptions()] == [stay]
+    assert fan_out(Store(db)) == 1
+    assert sends == [stay, off, stay]
 
 
 def test_daily_send_counter_is_per_subscriber_and_durable(tmp_path):
@@ -317,13 +425,22 @@ def test_sender_error_does_not_kill_the_cycle(_rules, tmp_path):
 def test_the_cycle_prunes_unconfirmed_subscriptions(_rules, tmp_path):
     store = Store(tmp_path / "pr.db")
     stale, _, _ = store.add_subscription("email", "stale@x.edu", {})
+    waiting, _, _ = store.add_subscription("email", "waiting@x.edu", {})
+    store.mark_confirmation_sent(stale)
     store.conn.execute(
-        "UPDATE subscriptions SET created_at = datetime('now', '-8 days') WHERE id = ?",
+        "UPDATE subscriptions SET created_at = datetime('now', '-8 days'), "
+        "confirmation_sent_at = datetime('now', '-8 days') WHERE id = ?",
         (stale,))
+    store.conn.execute(
+        "UPDATE subscriptions SET created_at = datetime('now', '-8 days') "
+        "WHERE id = ?", (waiting,))
     store.conn.commit()
     pipeline = make_pipeline(tmp_path, store, lambda s, ps: None)
 
     # verify=False is how production runs, so the prune has to happen on
-    # that path too.
+    # that path too. The row that was mailed and ignored goes; the one that
+    # was never mailed is a signup waiting on launch and stays, with its
+    # confirmation still owed.
     pipeline.run_cycle(verify=False)
-    assert store.active_subscriptions() == []
+    assert [s["id"] for s in store.active_subscriptions()] == [waiting]
+    assert [s["id"] for s in store.pending_confirmations()] == [waiting]

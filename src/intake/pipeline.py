@@ -41,7 +41,7 @@ from .detectors import (
 )
 from .notify import Sender, notify_new_postings
 from .schema import Posting, Status
-from .senders import build_sender
+from .senders import build_sender, send_pending_confirmations
 from .store import Store, open_store
 from .verify import VerifierAgent, run_rules
 
@@ -345,6 +345,11 @@ class Pipeline:
         pruned = self.store.prune_unverified()
         if pruned:
             log.info("PRUNE %d unverified subscription(s)", pruned)
+
+        # Signups taken while the email channel was dark get the confirmation
+        # they were promised. A no-op until sending is configured, and above
+        # the no-verify return for the same reason as the prune.
+        send_pending_confirmations(self.store, self.sender)
 
         if not verify:
             return report
