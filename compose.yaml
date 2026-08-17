@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:8642/api/postings', timeout=5)"]
+             "import urllib.request; urllib.request.urlopen('http://localhost:8642/healthz', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3

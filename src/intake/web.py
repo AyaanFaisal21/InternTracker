@@ -923,26 +923,50 @@ def visitor_hash(salt: str, ip: str, ua: str) -> str:
     """
     return hashlib.sha256(f"{salt}{ip}{ua}".encode()).hexdigest()[:16]
 
+# The full postings payload is ~1.5 MB and every request rebuilds it from a
+# full table read. Against a hosted Postgres that read is metered egress, so
+# an uncached endpoint costs GB/day. The poller only changes rows every 120 s,
+# so serving a slightly stale copy is free accuracy-wise and collapses N
+# requests into one read per window.
+POSTINGS_TTL_S = 120.0  # matches the poller cycle: data cannot change faster
+_postings_cache: tuple[float, bytes] | None = None
+_postings_lock = threading.Lock()
+
+
+def postings_body(db_path: Path) -> bytes:
+    """Serialized /api/postings payload, rebuilt at most once per TTL."""
+    global _postings_cache
+    with _postings_lock:
+        if _postings_cache and time.monotonic() - _postings_cache[0] < POSTINGS_TTL_S:
+            return _postings_cache[1]
+        store = open_store(db_path)  # sqlite: per-request; postgres: shared
+        rows = []
+        for p in store.all_postings():
+            d = p.model_dump(mode="json")
+            d["countries"] = countries_of(p.locations)
+            d["remote"] = is_remote(p.locations)
+            d["role"] = classify_role(p.title)
+            rows.append(d)
+        body = json.dumps(rows).encode()
+        _postings_cache = (time.monotonic(), body)
+        return body
+
 
 def make_handler(db_path: Path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             path = self.path.split("?")[0]
-            if path == "/":
+            if path == "/healthz":
+                # Liveness only: never touches the database. The container
+                # healthcheck runs every 30 s, and pointing it at a data
+                # endpoint bills a full table read each time.
+                self._send(200, b"ok", "text/plain")
+            elif path == "/":
                 self._send(200, LANDING.encode(), "text/html; charset=utf-8")
             elif path == "/listings":
                 self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             elif path == "/api/postings":
-                store = open_store(db_path)  # sqlite: per-request; postgres: shared
-                rows = []
-                for p in store.all_postings():
-                    d = p.model_dump(mode="json")
-                    d["countries"] = countries_of(p.locations)
-                    d["remote"] = is_remote(p.locations)
-                    d["role"] = classify_role(p.title)
-                    rows.append(d)
-                body = json.dumps(rows).encode()
-                self._send(200, body, "application/json")
+                self._send(200, postings_body(db_path), "application/json")
             elif path == "/api/suggestions":
                 store = open_store(db_path)
                 self._send(200, json.dumps(store.recent_suggestions()).encode(), "application/json")

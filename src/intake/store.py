@@ -235,11 +235,13 @@ class Store:
         ).fetchone()
         return self._to_posting(row) if row else None
 
-    def upsert_detection(self, det: RawDetection) -> tuple[Posting, bool]:
+    def upsert_detection(self, det: RawDetection) -> tuple[Posting | None, bool]:
         """Insert a detection or merge it into the existing record.
 
-        Returns (posting, is_new). is_new drives the pipeline: only new
-        postings enter verification.
+        Returns (posting, is_new); posting is None when the detection changed
+        nothing, matching the Postgres backend, which cannot cheaply produce a
+        row in that case. is_new drives the pipeline: only new postings enter
+        verification.
         """
         existing = self.get(det.dedupe_key())
         if existing is None:
@@ -257,8 +259,9 @@ class Store:
             if loc and loc not in existing.locations:
                 existing.locations.append(loc)
                 changed = True
-        if changed:
-            self._write(existing)
+        if not changed:
+            return None, False
+        self._write(existing)
         return existing, False
 
     def update(self, p: Posting) -> None:

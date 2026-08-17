@@ -60,22 +60,21 @@ spec:
             # the manifest reads correctly on its own.
             - name: INTAKE_BIND
               value: "0.0.0.0"
-          # Probes hit "/", not "/api/postings". "/" serves the legacy HTML
-          # page from a constant and never opens the store. Compose checks
-          # /api/postings, which is a full Supabase read; at a 10s period
-          # that is 8640 pointless queries a day. It also couples readiness
-          # to Supabase, and with one replica, pulling the pod out of the
-          # Service during a database blip only turns 500s into 502s.
+          # Probes hit /healthz, which answers from the process and never
+          # opens the store. A data endpoint here is a full Supabase read on
+          # every probe, and it also couples readiness to the database: with
+          # one replica, pulling the pod out of the Service during a database
+          # blip only turns 500s into 502s.
           readinessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: http
             initialDelaySeconds: 15
             periodSeconds: 30

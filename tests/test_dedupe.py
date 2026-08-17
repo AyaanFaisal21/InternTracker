@@ -37,3 +37,12 @@ def test_repoll_is_idempotent(tmp_path):
     store.upsert_detection(det())
     _, is_new = store.upsert_detection(det())
     assert not is_new
+
+
+def test_unchanged_repoll_returns_no_row(tmp_path):
+    # The Postgres backend cannot produce a row without a metered read, so a
+    # no-op merge returns None on both backends. Callers must not assume one.
+    store = Store(tmp_path / "t.db")
+    store.upsert_detection(det())
+    posting, is_new = store.upsert_detection(det())
+    assert posting is None and not is_new

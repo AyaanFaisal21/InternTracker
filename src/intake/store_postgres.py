@@ -41,6 +41,9 @@ class PostgresStore:
         self.url = url
         self._lock = threading.Lock()
         self._conn: psycopg.Connection | None = None
+        # id -> (sources, locations, has_date_posted); built lazily, only in
+        # processes that merge detections. See upsert_detection.
+        self._index: dict[str, tuple[set[str], set[str], bool]] | None = None
 
     def _connect(self) -> psycopg.Connection:
         self._conn = psycopg.connect(
@@ -70,16 +73,55 @@ class PostgresStore:
         )
         return self._to_posting(row) if row else None
 
-    def upsert_detection(self, det: RawDetection) -> tuple[Posting, bool]:
+    def _index_entry(self, p: Posting) -> tuple[set[str], set[str], bool]:
+        return ({s.value for s in p.sources}, set(p.locations),
+                p.date_posted is not None)
+
+    def _load_index(self) -> None:
+        """One query builds the merge index; see upsert_detection."""
+        rows = self._run(
+            lambda c: c.execute(
+                "SELECT id, sources, locations, date_posted FROM postings"
+            ).fetchall()
+        )
+        self._index = {
+            r["id"]: (set(r["sources"]), set(r["locations"]),
+                      r["date_posted"] is not None)
+            for r in rows
+        }
+
+    def upsert_detection(self, det: RawDetection) -> tuple[Posting | None, bool]:
         """Insert a detection or merge it into the existing record.
 
-        Returns (posting, is_new). is_new drives the pipeline: only new
-        postings enter verification.
+        Returns (posting, is_new); posting is None when the detection was a
+        no-op, so callers must not assume a row comes back. is_new drives the
+        pipeline: only new postings enter verification.
+
+        The poller calls this once per detection — ~1700 per cycle, every
+        120 s — and in steady state none of them change anything. Reading the
+        full row to decide that costs metered egress for data thrown away, so
+        an in-process index of just the three merge fields answers it with no
+        round trip. The full row is fetched only when a merge is real.
+
+        Single-writer assumption: the poller is the only process that merges
+        detections. If that changes (a second poller, a verifier that rewrites
+        sources), this index needs invalidation.
         """
-        existing = self.get(det.dedupe_key())
-        if existing is None:
+        key = det.dedupe_key()
+        if self._index is None:
+            self._load_index()
+        entry = self._index.get(key)
+        if entry is not None:
+            sources, locations, has_date = entry
+            if (det.source.value in sources
+                    and (has_date or det.date_posted is None)
+                    and all(not loc or loc in locations for loc in det.locations)):
+                return None, False  # nothing to merge: the common path
+        existing = self.get(key)
+        if existing is None:  # absent, or the index was stale
             p = Posting.from_detection(det)
             self._write(p)
+            self._index[key] = self._index_entry(p)
             return p, True
         changed = False
         if det.source not in existing.sources:
@@ -94,6 +136,7 @@ class PostgresStore:
                 changed = True
         if changed:
             self._write(existing)
+        self._index[key] = self._index_entry(existing)
         return existing, False
 
     def update(self, p: Posting) -> None:
