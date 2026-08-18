@@ -20,7 +20,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Callable
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 
@@ -115,6 +115,14 @@ def extract_job_key(url: str | None) -> tuple[str, str] | None:
         m = pat.search(path)
         if m:
             return parts.netloc.lower(), m.group(1).lower()
+    # Companies that embed a Greenhouse board on their own careers site carry
+    # the req id in the query instead of the path
+    # (careers.datadoghq.com/detail/8052095/?gh_jid=8052095). Without this the
+    # row looks keyless, and two sources spelling the title differently mint
+    # two records for one job.
+    jid = parse_qs(parts.query).get("gh_jid")
+    if jid and jid[0].strip().isdigit():
+        return parts.netloc.lower(), jid[0].strip()
     return None
 
 

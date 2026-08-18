@@ -21,6 +21,8 @@ greenhouse:
   - pinterest
   - mongodb
   - datadog
+  - epicgames
+  - neuralink
   - hudsonrivertrading
   - janestreet
 
@@ -31,6 +33,7 @@ lever:
 
 ashby:
   - ramp
+  - dedalus-labs
   - vercel
   - linear
   - notion

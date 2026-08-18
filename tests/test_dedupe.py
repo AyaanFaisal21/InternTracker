@@ -46,3 +46,15 @@ def test_unchanged_repoll_returns_no_row(tmp_path):
     store.upsert_detection(det())
     posting, is_new = store.upsert_detection(det())
     assert posting is None and not is_new
+
+
+def test_embedded_greenhouse_id_is_a_job_key():
+    """Companies hosting a Greenhouse board on their own site put the req id
+    in the query, not the path. Missing it split one Datadog job into two."""
+    from intake.pipeline import extract_job_key
+
+    a = "https://careers.datadoghq.com/detail/8052095/?gh_jid=8052095"
+    b = "https://careers.datadoghq.com/detail/8052095/?gh_jid=8052095&gh_src=x"
+    assert extract_job_key(a) == ("careers.datadoghq.com", "8052095")
+    assert extract_job_key(a) == extract_job_key(b)   # tracking params are noise
+    assert extract_job_key("https://careers.datadoghq.com/detail/8052095/") is None

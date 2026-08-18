@@ -22,7 +22,7 @@ SWE_RE = re.compile(
     r"|machine learning|\bml\b|\bai\b|data|platform|\bsystems?\b|security|mobile|ios|android"
     # research-heavy employers (NVIDIA et al.) title CS intern roles like this:
     r"|deep learning|\bllm\b|gpu|cuda|compiler|graphics|robotics|computer vision"
-    r"|perception|autonomous|firmware|research",
+    r"|perception|autonomous|firmware|research|programmer",
     re.IGNORECASE,
 )
 
