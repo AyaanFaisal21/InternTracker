@@ -9,7 +9,7 @@ import httpx
 
 from ..dates import parse_iso
 from ..schema import RawDetection, Source
-from .base import looks_like_swe_internship
+from .base import company_from_slug, looks_like_swe_internship
 
 API = "https://api.ashbyhq.com/posting-api/job-board/{name}"
 
@@ -36,7 +36,7 @@ class AshbyDetector:
                 out.append(
                     RawDetection(
                         source=Source.ASHBY,
-                        company=name,
+                        company=company_from_slug(name),
                         title=title,
                         url=job.get("jobUrl", "") or job.get("applyUrl", ""),
                         locations=[job.get("location", "")],

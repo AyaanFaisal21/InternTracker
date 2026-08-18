@@ -9,7 +9,7 @@ import httpx
 
 from ..dates import parse_epoch
 from ..schema import RawDetection, Source
-from .base import looks_like_swe_internship
+from .base import company_from_slug, looks_like_swe_internship
 
 API = "https://api.lever.co/v0/postings/{slug}?mode=json"
 
@@ -37,7 +37,7 @@ class LeverDetector:
                 out.append(
                     RawDetection(
                         source=Source.LEVER,
-                        company=slug,
+                        company=company_from_slug(slug),
                         title=title,
                         url=job.get("hostedUrl", ""),
                         date_posted=parse_epoch(job.get("createdAt")),

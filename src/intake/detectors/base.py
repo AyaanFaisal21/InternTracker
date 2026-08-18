@@ -27,6 +27,23 @@ SWE_RE = re.compile(
 )
 
 
+# Slugs whose title-cased form is wrong. Only entries we actually watch.
+_DISPLAY_OVERRIDES = {"openai": "OpenAI", "ibm": "IBM", "nvidia": "NVIDIA"}
+
+
+def company_from_slug(slug: str) -> str:
+    """Display name for an ATS slug ("dedalus-labs" -> "Dedalus Labs").
+
+    Boards that expose a real company name should use it; this is for the
+    ones that do not. A raw slug shows the employer lowercased and hyphenated
+    beside properly cased names from other sources, and because company is
+    half the dedupe key, the two spellings never merge into one posting.
+    """
+    if slug.lower() in _DISPLAY_OVERRIDES:
+        return _DISPLAY_OVERRIDES[slug.lower()]
+    return " ".join(w.capitalize() for w in slug.replace("_", "-").split("-") if w) or slug
+
+
 def looks_like_swe_internship(title: str) -> bool:
     return bool(INTERN_RE.search(title)) and bool(SWE_RE.search(title))
 
