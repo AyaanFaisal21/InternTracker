@@ -328,6 +328,50 @@ class PostgresStore:
             None,
         )
 
+    def add_report(self, kind: str, body: str, context: str | None,
+                   reporter: str | None) -> int:
+        return self._run(
+            lambda c: c.execute(
+                "INSERT INTO reports (kind, body, context, reporter) "
+                "VALUES (%s,%s,%s,%s) RETURNING id",
+                (kind, body, context, reporter),
+            ).fetchone()["id"]
+        )
+
+    def reports_today(self, reporter: str) -> int:
+        return self._run(
+            lambda c: c.execute(
+                "SELECT COUNT(*) AS n FROM reports WHERE reporter = %s "
+                "AND created_at >= date_trunc('day', now())", (reporter,)
+            ).fetchone()["n"]
+        )
+
+    def duplicate_report(self, reporter: str, body: str) -> bool:
+        return bool(self._run(
+            lambda c: c.execute(
+                "SELECT 1 FROM reports WHERE reporter = %s AND body = %s "
+                "AND created_at >= date_trunc('day', now()) LIMIT 1",
+                (reporter, body),
+            ).fetchone()
+        ))
+
+    def new_reports(self, limit: int = 100) -> list[dict]:
+        rows = self._run(
+            lambda c: c.execute(
+                "SELECT * FROM reports WHERE status = 'new' ORDER BY id LIMIT %s",
+                (limit,)
+            ).fetchall()
+        )
+        return [self._sugg_dict(r) for r in rows]
+
+    def resolve_report(self, rid: int, status: str, summary: str | None) -> None:
+        self._run(
+            lambda c: c.execute(
+                "UPDATE reports SET status = %s, summary = %s WHERE id = %s",
+                (status, summary, rid),
+            )
+        )
+
     def recent_suggestions(self, limit: int = 25) -> list[dict]:
         rows = self._run(
             lambda c: c.execute(

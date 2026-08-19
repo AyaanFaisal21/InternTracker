@@ -885,6 +885,14 @@ VERIFY_LIMIT = RateLimiter(limit=30, window_s=60.0)
 # rate that costs an SES account its sending. Keyed on a hash of the
 # address, so the limiter's memory holds no addresses.
 CONFIRM_LIMIT = RateLimiter(limit=2, window_s=3600.0)
+# Reports are written by hand, so a human files one every few minutes at most.
+# Three layers, same shape as the resolver guard: per-IP burst, a per-visitor
+# daily cap, and exact-duplicate suppression. None of them is security (there
+# is no login), they keep one bored person from filling the review queue.
+REPORT_LIMIT = RateLimiter(limit=3, window_s=600.0)
+REPORT_MAX = 2000        # long enough for a real bug report, short enough to read
+REPORT_CONTEXT_MAX = 200
+REPORTS_PER_DAY = 5
 
 # A rate limiter caps one client; it does not stop a rotating one. Collapsing
 # repeat submissions is what keeps the resolver's cost proportional to
@@ -1095,6 +1103,32 @@ def make_handler(db_path: Path):
                     keywords=(str(body.get("keywords") or "").strip()[:120] or None),
                 )
                 self._send(200, json.dumps({"id": sid}).encode(), "application/json")
+            elif self.path == "/api/report":
+                if not REPORT_LIMIT.allow(self._client_ip()):
+                    self._send(429, b"slow down", "text/plain")
+                    return
+                body = self._json_body()
+                if body is None:
+                    return
+                kind = str(body.get("kind", "issue")).strip()
+                text = str(body.get("body", "")).strip()
+                context = str(body.get("context", "")).strip()[:REPORT_CONTEXT_MAX]
+                if kind not in ("issue", "fix") or not text or len(text) > REPORT_MAX:
+                    self._send(400, b"bad request", "text/plain")
+                    return
+                store = open_store(db_path)
+                ua = self.headers.get("User-Agent", "")[:400]
+                who = visitor_hash(store.visit_salt(), self._client_ip(), ua)
+                if store.duplicate_report(who, text):
+                    # A double-submitted form is the same report, not a second
+                    # one. Answer as success: the visitor did nothing wrong.
+                    self._send(200, b'{"ok": true}', "application/json")
+                    return
+                if store.reports_today(who) >= REPORTS_PER_DAY:
+                    self._send(429, b"daily limit reached", "text/plain")
+                    return
+                rid = store.add_report(kind, text, context or None, who)
+                self._send(200, json.dumps({"id": rid}).encode(), "application/json")
             elif self.path == "/api/visit":
                 if not VISIT_LIMIT.allow(self._client_ip()):
                     self._send(429, b"slow down", "text/plain")

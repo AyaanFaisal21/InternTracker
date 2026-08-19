@@ -164,6 +164,21 @@ CREATE TABLE IF NOT EXISTS notify_sends (
     sends           INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (day, subscription_id)
 );
+
+-- Bug reports and fix suggestions from the site. Deliberately anonymous:
+-- `reporter` is the same daily-salted hash visits use, so repeat submissions
+-- can be capped within a day and nothing can be walked back to a person once
+-- the salt is deleted. Reviewed in batches, summarized into `summary`.
+CREATE TABLE IF NOT EXISTS reports (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT NOT NULL,                 -- 'issue' | 'fix'
+    body       TEXT NOT NULL,                 -- what the visitor wrote
+    context    TEXT,                          -- page or posting they were on
+    reporter   TEXT,                          -- daily salted hash, not an identity
+    status     TEXT NOT NULL DEFAULT 'new',   -- new | triaged | actioned | dismissed
+    summary    TEXT,                          -- filled by the AI review pass
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -394,6 +409,45 @@ class Store:
 
     def visit_count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM visits").fetchone()[0]
+
+    def add_report(self, kind: str, body: str, context: str | None,
+                   reporter: str | None) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO reports (kind, body, context, reporter) VALUES (?,?,?,?)",
+            (kind, body, context, reporter),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid)
+
+    def reports_today(self, reporter: str) -> int:
+        """Reports this visitor filed today. The per-day cap reads this."""
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE reporter = ? "
+            "AND created_at >= date('now')", (reporter,)
+        ).fetchone()[0]
+
+    def duplicate_report(self, reporter: str, body: str) -> bool:
+        """True when this visitor already filed this exact text today.
+
+        A double-clicked form must not become two rows to triage.
+        """
+        return bool(self.conn.execute(
+            "SELECT 1 FROM reports WHERE reporter = ? AND body = ? "
+            "AND created_at >= date('now') LIMIT 1", (reporter, body)
+        ).fetchone())
+
+    def new_reports(self, limit: int = 100) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM reports WHERE status = 'new' ORDER BY id LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def resolve_report(self, rid: int, status: str, summary: str | None) -> None:
+        self.conn.execute(
+            "UPDATE reports SET status = ?, summary = ? WHERE id = ?",
+            (status, summary, rid),
+        )
+        self.conn.commit()
 
     def recent_suggestions(self, limit: int = 25) -> list[dict]:
         rows = self.conn.execute(

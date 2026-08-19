@@ -785,3 +785,26 @@ def test_postings_endpoint_revalidates_with_etag(tmp_path):
     web._snapshot = None                         # next poll re-reads
     _, etag3 = web.postings_payload(db)
     assert etag3 != etag                         # changed data, new validator
+
+
+def test_report_endpoint_caps_and_dedupes(tmp_path):
+    """Anonymous reports: stored under the daily visitor hash, capped per day,
+    and a resubmitted identical body does not create a second row to triage."""
+    from intake.store import Store
+
+    store = Store(tmp_path / "t.db")
+    who = "visitor00000000"
+    assert store.add_report("issue", "season tag is wrong", "/listings", who)
+    assert store.duplicate_report(who, "season tag is wrong")
+    assert not store.duplicate_report(who, "a different report")
+    assert store.reports_today(who) == 1
+
+    for i in range(4):
+        store.add_report("fix", f"suggestion {i}", None, who)
+    assert store.reports_today(who) == 5          # the cap the endpoint enforces
+    assert store.reports_today("someone-else") == 0   # scoped per visitor
+
+    rows = store.new_reports()
+    assert len(rows) == 5 and {r["status"] for r in rows} == {"new"}
+    store.resolve_report(rows[0]["id"], "triaged", "wrong season on one listing")
+    assert len(store.new_reports()) == 4
