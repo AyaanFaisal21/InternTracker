@@ -86,3 +86,29 @@
      grid gapless, since a full-width first item leaves no hole to fill. */
   .page-listings .sidebar .cp { grid-column:1 / -1; }
 }
+
+/* Report an issue: a quiet link until opened, then a small form in place. */
+.reportlink {
+  background: none;
+  border: none;
+  color: var(--muted, #8b949e);
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.reportlink:hover { color: #e6edf3; }
+.reportbox { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.reportbox textarea {
+  width: 100%;
+  max-width: 520px;
+  background: #0d1117;
+  color: #e6edf3;
+  border: 1px solid #363636;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.reportrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

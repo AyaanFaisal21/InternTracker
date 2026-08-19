@@ -20,6 +20,7 @@ import {
 } from "../postings";
 import Masthead from "../components/Masthead";
 import SubscribePanel from "../components/SubscribePanel";
+import ReportBox from "../components/ReportBox";
 import CompanyPicker, { companyKey } from "../components/CompanyPicker";
 import type { CompanyOption } from "../components/CompanyPicker";
 import "../styles/listings.css";
@@ -631,6 +632,9 @@ export default function Listings() {
               />{" "}
               <button onClick={() => void suggest()}>Submit</button>{" "}
               <span className="muted">{sugmsg}</span>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <ReportBox context={search || "/listings"} />
             </div>
             <div className="sugstat">
               {sugs.slice(0, 5).map((x, i) => (

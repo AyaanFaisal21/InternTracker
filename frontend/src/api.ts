@@ -210,3 +210,24 @@ export function recordVisit(page: string): void {
     body: JSON.stringify({ page }),
   }).catch(() => {});
 }
+
+/** What a visitor is telling us: something is broken, or something to change. */
+export type ReportKind = "issue" | "fix";
+
+/**
+ * File an anonymous report. Returns false when the server refuses (rate
+ * limit, daily cap, validation); a repeat of an identical report succeeds
+ * without creating a second row. Network failures throw.
+ */
+export async function submitReport(
+  kind: ReportKind,
+  body: string,
+  context: string,
+): Promise<boolean> {
+  const r = await fetch("/api/report", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ kind, body, context }),
+  });
+  return r.ok;
+}
